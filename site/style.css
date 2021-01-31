@@ -1,0 +1,40 @@
+html {
+  font-size: 14px;
+}
+aside {
+  position: fixed;
+  top: 80px;
+  padding-left: 20px;
+  width: 220px;
+}
+main {
+  position: relative;
+  height: calc(100vh - 60px);
+  overflow-y: scroll;
+  margin-top: 60px;
+  margin-left: 220px;
+  padding-top: 20px;
+  padding-left: 30px;
+  padding-right: 30px;
+}
+main section {
+  padding-top: 15px;
+  margin-bottom: 20px;
+}
+main section h1 {
+  margin-bottom: 1rem;
+}
+
+.forkme {
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 9999;
+}
+
+#changelog-body h1 {
+  margin-bottom: 0;
+}
+#changelog-body h3 {
+  margin: 0.5rem 0;
+}

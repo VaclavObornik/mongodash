@@ -1,0 +1,33 @@
+{
+    "branch": "master",
+    "prepare": [
+        "@semantic-release/changelog",
+        "@semantic-release/npm",
+        {
+            "path": "@semantic-release/git",
+            "assets": [
+                "package.json",
+                "package-lock.json",
+                "CHANGELOG.md"
+            ],
+        "message": "chore(release): v${nextRelease.version} by CI\n\n${nextRelease.notes}"
+        }
+    ],
+    "plugins": [
+        ["@semantic-release/commit-analyzer", {
+            "preset": "angular",
+            "releaseRules": [
+                {"type": "breaking", "release": "major"}
+            ]
+        }],
+        "@semantic-release/release-notes-generator",
+        ["@semantic-release/changelog", {
+            "changelogFile": "CHANGELOG.md",
+        }],
+        ["@semantic-release/npm", {
+            "npmPublish": false,
+        }],
+        "@semantic-release/github",
+        "@semantic-release/git"
+    ]
+}
