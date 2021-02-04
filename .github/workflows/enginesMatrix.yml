@@ -1,0 +1,66 @@
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+name: Test Engines Matrix
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node-version: [ 14.x, 12.x, 10.x ]
+        mongodb-version: [ 4.4, 3.6 ]
+        mongodb-driver-version: [ 3.6, 3.0 ]
+        exclude:
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.5
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.4
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.3
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.2
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.1
+          - mongodb-version: 4.4
+            mongodb-driver-version: 3.0
+          - mongodb-version: 4.2
+            mongodb-driver-version: 3.2
+          - mongodb-version: 4.2
+            mongodb-driver-version: 3.1
+          - mongodb-version: 4.2
+            mongodb-driver-version: 3.0
+          - mongodb-version: 4.0
+            mongodb-driver-version: 3.0
+
+    steps:
+
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js ${{ matrix.node-version }}.x
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.3.0
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+
+      - name: npm ci
+        run: npm ci
+
+      - name: set mongodb driver version
+        run: npm i mongodb@${{ matrix.mongodb-driver-version }}
+
+      - name: npm run test:simple
+        run: npm run test:simple
+

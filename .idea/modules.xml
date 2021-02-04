@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/mongodash.iml" filepath="$PROJECT_DIR$/.idea/mongodash.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../mongodash-playground/.idea/mongodash-playground.iml" filepath="$PROJECT_DIR$/../mongodash-playground/.idea/mongodash-playground.iml" />
     </modules>
   </component>
 </project>

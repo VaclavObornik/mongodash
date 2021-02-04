@@ -1,7 +1,7 @@
 module.exports = {
   verbose: true,
   rootDir: './',
-  roots: ['<rootDir>/src/'],
+  roots: ['<rootDir>/src/', '<rootDir>/test/'],
   preset: 'ts-jest',
   moduleNameMapper: {
     '.+\\.(css|styl|less|sass|scss|png|jpg|ttf|woff|woff2)$': 'jest-transform-stub',
@@ -12,18 +12,19 @@ module.exports = {
     },
   },
   testEnvironment: 'node',
-  testRegex: '(/__tests__/.*|\\.(test|spec))\\.(ts|tsx|js)$',
-  setupFilesAfterEnv: ['./jest.setup.ts'],
-  moduleFileExtensions: ['ts', 'tsx', 'js'],
-  coveragePathIgnorePatterns: ['/node_modules/', '/src/styles/', 'src/index.ts'],
+  testRegex: '/test/(?!testHelpers|\.eslintrc).*\\.(ts|js)$',
+  setupFilesAfterEnv: [],
+  moduleFileExtensions: ['ts', 'js'],
+  coveragePathIgnorePatterns: ['/node_modules/'],
   coverageThreshold: {
     global: {
-      branches: 0,
-      functions: 0,
-      lines: 0,
-      statements: 0,
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100,
     },
   },
-  collectCoverageFrom: ['src/**/*.{js,ts,tsx}'],
+  collectCoverageFrom: ['src/**/*.{js,ts}'],
   coverageDirectory: './reports/coverage',
+  testRunner: 'jasmine2',
 };

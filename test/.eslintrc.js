@@ -8,14 +8,14 @@ module.exports = {
   parserOptions: {
     ecmaVersion: 2018,
     sourceType: 'module',
-    ecmaFeatures: {
-      jsx: true,
-    },
     project: './tsconfig.json',
     tsconfigRootDir: __dirname,
   },
   "plugins": ["no-only-tests"],
   rules: {
-    indent: ["error", 4]
+    indent: ["error", 4],
+    "no-only-tests/no-only-tests": "error",
+    "@typescript-eslint/no-non-null-assertion": ["off"],
+    "@typescript-eslint/ban-ts-comment": ["off"]
   },
 };
