@@ -10,8 +10,7 @@ name: Test Lint
 
 jobs:
 
-  build:
-    name: Build
+  lint:
     runs-on: ubuntu-latest
     steps:
 

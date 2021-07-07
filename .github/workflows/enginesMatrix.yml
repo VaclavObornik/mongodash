@@ -10,8 +10,7 @@ name: Test Engines Matrix
 
 jobs:
 
-  build:
-    name: Build
+  engines-matix-tests:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

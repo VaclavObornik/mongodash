@@ -9,7 +9,7 @@ on:
       - master
 
 jobs:
-  core:
+  mutation-testing:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1

@@ -1,4 +1,4 @@
-name: Release
+name: Publish release
 
 on:
   push:
@@ -9,8 +9,7 @@ env:
   NODE_VERION: 12.x
 
 jobs:
-  build:
-    name: Publish
+  publish-release:
     runs-on: ubuntu-latest
 
     steps:
