@@ -8,7 +8,6 @@
     <envs>
       <env name="DEBUG" value="mongodash:*" />
       <env name="KEEP_SINGLE_DATABASE" value="true" />
-      <env name="MONGODB_VERSION" value="3.6" />
     </envs>
     <scope-kind value="ALL" />
     <method v="2" />

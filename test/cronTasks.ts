@@ -407,7 +407,7 @@ describe('cronTasks %i', () => {
         });
 
         it('should use created indexes for finding a task', async () => {
-            const testingTasks = times(5, () => getTestingTask());
+            const testingTasks = times(100, () => getTestingTask());
             const runPromises = testingTasks.map((task) => task.waitForNextRun());
 
             for (const task of testingTasks) {
@@ -423,8 +423,9 @@ describe('cronTasks %i', () => {
 
             debug(JSON.stringify(explain, null, 4));
             const winningPlan = JSON.stringify(explain?.queryPlanner?.winningPlan);
-            assert(winningPlan.includes('"indexName":"runSinceIndex"'), `The plan does not win: ${winningPlan}`);
-            assert(winningPlan.includes('"indexName":"runImmediatelyIndex"'), `The plan does not win: ${winningPlan}`);
+            const winningPlanPretty = JSON.stringify(explain?.queryPlanner?.winningPlan, null, 4);
+            assert(winningPlan.includes('"indexName":"runSinceIndex"'), `The plan with runSinceIndex does not win: ${winningPlanPretty}`);
+            assert(winningPlan.includes('"indexName":"runImmediatelyIndex"'), `The plan with runImmediatelyIndex does not win: ${winningPlanPretty}`);
         });
 
         it('should persist a runLog', async () => {
