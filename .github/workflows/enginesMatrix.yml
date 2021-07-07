@@ -41,7 +41,8 @@ jobs:
             mongodb-driver-version: 3.0
           - mongodb-version: 4.0
             mongodb-driver-version: 3.0
-
+    env:
+      MONGODB_VERSION: ${{ matrix.mongodb-version }}
     steps:
 
       - uses: actions/checkout@v2

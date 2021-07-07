@@ -1,10 +1,16 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import * as assert from 'assert';
+import { noop } from 'lodash';
 import { ClientSession } from 'mongodb';
 import { createSandbox, SinonStub } from 'sinon';
 import { getNewInstance } from './testHelpers';
 
 describe('withTransaction', () => {
+    if ('MONGODB_VERSION' in process.env && (process.env.MONGODB_VERSION as string) < '4.0') {
+        it.skip('NOT SUITABLE MONGODB_VERSION', noop);
+        return;
+    }
+
     let instance: ReturnType<typeof getNewInstance>;
     beforeEach(async () => {
         instance = getNewInstance();
