@@ -85,7 +85,9 @@ describe('cronTasks %i', () => {
         // @ts-ignore
         finishTaskStub = updateOneStub.withArgs(
             sinon.match.any,
-            sinon.match((update: UpdateQuery<TaskDocument>) => isEqual(paths(update), ['$set.runSince', '$set.lockedTill', '$set["runLog.0.error"]', '$set["runLog.0.finishedAt"]'])),
+            sinon.match((update: UpdateQuery<TaskDocument>) =>
+                isEqual(paths(update), ['$set.runSince', '$set.lockedTill', '$set["runLog.0.error"]', '$set["runLog.0.finishedAt"]']),
+            ),
         );
 
         // @ts-ignore
@@ -382,29 +384,32 @@ describe('cronTasks %i', () => {
     });
 
     describe('task processing', () => {
-        it.each([5 * noTaskWaitTime - 3000, 5 * noTaskWaitTime, 5 * noTaskWaitTime + 3000])('should run task in a desired time (%ims)', async (scheduleTime) => {
-            const { taskId, task, callTimes } = getTestingTask();
+        it.each([5 * noTaskWaitTime - 3000, 5 * noTaskWaitTime, 5 * noTaskWaitTime + 3000])(
+            'should run task in a desired time (%ims)',
+            async (scheduleTime) => {
+                const { taskId, task, callTimes } = getTestingTask();
 
-            const desiredTime = new Date(Date.now() + scheduleTime);
-            await cronTask(taskId, getRunOnceInterval(desiredTime), task);
+                const desiredTime = new Date(Date.now() + scheduleTime);
+                await cronTask(taskId, getRunOnceInterval(desiredTime), task);
 
-            // we meed to have multiple different tasks to test getWaitTimeByNextTask query sort
-            const task2 = getTestingTask();
-            const afterDesiredTime = new Date(desiredTime.getTime() + 2000);
-            await cronTask(task2.taskId, getRunOnceInterval(afterDesiredTime), task2.task);
+                // we meed to have multiple different tasks to test getWaitTimeByNextTask query sort
+                const task2 = getTestingTask();
+                const afterDesiredTime = new Date(desiredTime.getTime() + 2000);
+                await cronTask(task2.taskId, getRunOnceInterval(afterDesiredTime), task2.task);
 
-            while (callTimes.length === 0) {
-                await triggerNextRound();
-            }
+                while (callTimes.length === 0) {
+                    await triggerNextRound();
+                }
 
-            assert(callTimes[0].startedAt >= desiredTime, 'Task started too early.');
+                assert(callTimes[0].startedAt >= desiredTime, 'Task started too early.');
 
-            const possibleRunTime = 500;
-            const latestStart = new Date(desiredTime.getTime() + possibleRunTime);
-            assert(callTimes[0].startedAt <= latestStart, 'Task started too late');
+                const possibleRunTime = 500;
+                const latestStart = new Date(desiredTime.getTime() + possibleRunTime);
+                assert(callTimes[0].startedAt <= latestStart, 'Task started too late');
 
-            assert(onError.notCalled, 'The onError function should not be called when there is no error');
-        });
+                assert(onError.notCalled, 'The onError function should not be called when there is no error');
+            },
+        );
 
         it('should use created indexes for finding a task', async () => {
             const testingTasks = times(100, () => getTestingTask());
@@ -434,7 +439,14 @@ describe('cronTasks %i', () => {
                 await wait(taskTime);
             });
 
-            const dates = [new Date(Date.now() + 1000), new Date(Date.now() + 10 * 1000), new Date(Date.now() + 20 * 1000), new Date(Date.now() + 60 * 1000), new Date(Date.now() + 70 * 1000), new Date(Date.now() + 90 * 1000)];
+            const dates = [
+                new Date(Date.now() + 1000),
+                new Date(Date.now() + 10 * 1000),
+                new Date(Date.now() + 20 * 1000),
+                new Date(Date.now() + 60 * 1000),
+                new Date(Date.now() + 70 * 1000),
+                new Date(Date.now() + 90 * 1000),
+            ];
 
             await cronTask(taskId, scheduledInterval(...dates), task);
 
@@ -449,7 +461,10 @@ describe('cronTasks %i', () => {
 
             function dateRoughlyEqual(actual: Date, expected: Date) {
                 const maxExpected = new Date(expected.getTime() + 100);
-                assert(actual <= maxExpected, `Actual date is too close to present. Actual: ${actual.toISOString()}, maxExpected: ${maxExpected.toISOString()}`);
+                assert(
+                    actual <= maxExpected,
+                    `Actual date is too close to present. Actual: ${actual.toISOString()}, maxExpected: ${maxExpected.toISOString()}`,
+                );
 
                 const minExpected = new Date(expected.getTime() - 100);
                 assert(actual >= minExpected, `Actual date is too early. Actual: ${actual.toISOString()}, maxExpected: ${minExpected.toISOString()}`);
@@ -508,7 +523,11 @@ describe('cronTasks %i', () => {
             const interval3 = scheduledInterval(new Date(Date.now() + 14 * 1000), sameRunSince); // third
             const callPromise3 = task3.waitForNextRun();
 
-            await Promise.all([cronTask(task1.taskId, interval1, task1.task), cronTask(task2.taskId, interval2, task2.task), cronTask(task3.taskId, interval3, task3.task)]);
+            await Promise.all([
+                cronTask(task1.taskId, interval1, task1.task),
+                cronTask(task2.taskId, interval2, task2.task),
+                cronTask(task3.taskId, interval3, task3.task),
+            ]);
 
             sandbox.clock.tick(15 * 1000);
             await Promise.all([callPromise1, callPromise2, callPromise3]);
@@ -679,7 +698,11 @@ describe('cronTasks %i', () => {
             }
 
             const optionArguments = findNextRunSinceStub.firstCall.args[1];
-            assert.deepStrictEqual(optionArguments.projection, { runSince: 1 }, 'There is no need to get anything else but runSince from database, so data can be returned from index only');
+            assert.deepStrictEqual(
+                optionArguments.projection,
+                { runSince: 1 },
+                'There is no need to get anything else but runSince from database, so data can be returned from index only',
+            );
             assert.deepStrictEqual(optionArguments.sort, { runSince: 1 }, 'Finding next should sort them ASC by runSince');
         });
     });
@@ -719,7 +742,11 @@ describe('cronTasks %i', () => {
         it('should throw if function returns Number.NaN', async () => {
             const invalidExpression = () => Number.NaN;
             const { taskId, task } = getTestingTask();
-            await assert.rejects(() => cronTask(taskId, <never>invalidExpression, task), /Interval number has to be finite\./, 'The registration did not throw proper error.');
+            await assert.rejects(
+                () => cronTask(taskId, <never>invalidExpression, task),
+                /Interval number has to be finite\./,
+                'The registration did not throw proper error.',
+            );
         });
 
         it.each([{}, undefined, null, ''])('should throw if function returns "%s"', async (value) => {
@@ -743,7 +770,11 @@ describe('cronTasks %i', () => {
         it('should validate the CRON expression during the registration', async () => {
             const invalidExpression = 'CRON x c 1 1 *';
             const { taskId, task } = getTestingTask();
-            await assert.rejects(() => cronTask(taskId, invalidExpression, task), /Error: Invalid interval\. Invalid characters, got value: x\./, 'The registration did not throw proper error.');
+            await assert.rejects(
+                () => cronTask(taskId, invalidExpression, task),
+                /Error: Invalid interval\. Invalid characters, got value: x\./,
+                'The registration did not throw proper error.',
+            );
         });
 
         it('should throw error when endDate parameter is used for cron-parser', async () => {
@@ -751,7 +782,11 @@ describe('cronTasks %i', () => {
 
             const mongodash = getNewInstance();
 
-            await assert.rejects(() => mongodash.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }), /The 'endDate' parameter of the cron-parser package is not supported yet./, 'Expected error has not been thrown.');
+            await assert.rejects(
+                () => mongodash.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }),
+                /The 'endDate' parameter of the cron-parser package is not supported yet./,
+                'Expected error has not been thrown.',
+            );
         });
 
         it('should work with duration string', async () => {
@@ -794,7 +829,11 @@ describe('cronTasks %i', () => {
         it('should validate the duration number during the registration', async () => {
             const invalidExpression = Number.NaN;
             const { taskId, task } = getTestingTask();
-            await assert.rejects(() => cronTask(taskId, invalidExpression, task), /Error: Interval number has to be finite\./, 'The registration did not throw proper error.');
+            await assert.rejects(
+                () => cronTask(taskId, invalidExpression, task),
+                /Error: Interval number has to be finite\./,
+                'The registration did not throw proper error.',
+            );
         });
 
         it('should let the task locked and log the error when interval function throws', async () => {
@@ -1125,7 +1164,10 @@ describe('cronTasks %i', () => {
 
             await task2.waitForNextRun();
 
-            assert.strictEqual(error.message, 'It is not possible to call runCronTask inside another running task. Use the scheduleCronTaskImmediately() function instead.');
+            assert.strictEqual(
+                error.message,
+                'It is not possible to call runCronTask inside another running task. Use the scheduleCronTaskImmediately() function instead.',
+            );
         });
 
         it('should be possible to run a task event if stopCronTasks has been called', async () => {

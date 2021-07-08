@@ -49,8 +49,14 @@ describe('withLock', () => {
         const successfulJobs = stubs.filter((stub) => stub.called);
         const maxSuccessfulJobs = maxWaitForLock / jobTime;
         const minSuccessfulJobs = maxSuccessfulJobs - 1;
-        assert(successfulJobs.length >= minSuccessfulJobs, `Count of successfulJobs (${successfulJobs.length}) is lower than minSuccessfulJobs (${minSuccessfulJobs})`);
-        assert(successfulJobs.length <= maxSuccessfulJobs, `Count of successfulJobs (${successfulJobs.length}) is greater than maxSuccessfulJobs (${maxSuccessfulJobs})`);
+        assert(
+            successfulJobs.length >= minSuccessfulJobs,
+            `Count of successfulJobs (${successfulJobs.length}) is lower than minSuccessfulJobs (${minSuccessfulJobs})`,
+        );
+        assert(
+            successfulJobs.length <= maxSuccessfulJobs,
+            `Count of successfulJobs (${successfulJobs.length}) is greater than maxSuccessfulJobs (${maxSuccessfulJobs})`,
+        );
 
         assert(
             callTimes.every((time, i) => {

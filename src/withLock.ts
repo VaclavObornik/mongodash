@@ -39,7 +39,11 @@ async function getLockerCollection() {
     return collectionPromise;
 }
 
-export async function withLock<T>(key: LockKey, callback: LockCallback<T>, { maxWaitForLock = 3 * 1000, startingDelay = 50, expireIn = 15 * 1000 }: LockerOptions = {}): Promise<T> {
+export async function withLock<T>(
+    key: LockKey,
+    callback: LockCallback<T>,
+    { maxWaitForLock = 3 * 1000, startingDelay = 50, expireIn = 15 * 1000 }: LockerOptions = {},
+): Promise<T> {
     const lockId = new ObjectId();
     const stringKey = `${key}`;
     const expirationKey = 'expiresAt';
