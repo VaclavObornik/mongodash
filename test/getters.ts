@@ -48,13 +48,22 @@ describe('getters', () => {
 
         it('should not be possible to init with wrong argument combination', async () => {
             const instance1 = getNewInstance();
-            await assert.rejects(() => instance1.mongodash.init({ mongoClient: new MongoClient('aaa'), uri: 'aaa' }), /Error: It is not possible use uri with ready mongoClient instance./);
+            await assert.rejects(
+                () => instance1.mongodash.init({ mongoClient: new MongoClient('aaa'), uri: 'aaa' }),
+                /Error: It is not possible use uri with ready mongoClient instance./,
+            );
 
             const instance2 = getNewInstance();
-            await assert.rejects(() => instance2.mongodash.init({ mongoClient: new MongoClient('aaa'), clientOptions: {} }), /Error: It is not possible use clientOptions with ready mongoClient instance./);
+            await assert.rejects(
+                () => instance2.mongodash.init({ mongoClient: new MongoClient('aaa'), clientOptions: {} }),
+                /Error: It is not possible use clientOptions with ready mongoClient instance./,
+            );
 
             const instance3 = getNewInstance();
-            await assert.rejects(() => instance3.mongodash.init({ clientOptions: {} }), /Error: The `mongoClient` or the connection `uri` parameter has to be specified./);
+            await assert.rejects(
+                () => instance3.mongodash.init({ clientOptions: {} }),
+                /Error: The `mongoClient` or the connection `uri` parameter has to be specified./,
+            );
         });
 
         it('autoConnect option should work', async () => {
