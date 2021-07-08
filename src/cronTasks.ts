@@ -8,8 +8,6 @@ import { OnError } from './OnError';
 
 // const debug = _debug('mongodash:cronTasks');
 
-// return controller ?
-
 export type TaskFunction = () => Promise<unknown> | void;
 export type ScalarInterval = number | string;
 export type StaticInterval = ScalarInterval | Date;
