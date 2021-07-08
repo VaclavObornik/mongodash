@@ -1,4 +1,10 @@
-# Documentation: https://mongodash.readme.io
+<br>
+
+[![Mongodash](https://files.readme.io/72a6700-small-mongodash_4.png)](https://mongodash.readme.io)
+
+# https://mongodash.readme.io
+
+<br>
 
 ![Release](https://github.com/VaclavObornik/mongodash/workflows/Release/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/VaclavObornik/mongodash/badge.svg?branch=master)](https://coveralls.io/github/VaclavObornik/mongodash?branch=master)
