@@ -2,7 +2,6 @@
 
 // import * as _debug from 'debug';
 import { backOff } from 'exponential-backoff';
-import { random } from 'lodash';
 import { Collection, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
@@ -68,7 +67,7 @@ export async function withLock<T>(key: LockKey, callback: LockCallback<T>, { max
     const maxDate = new Date(Date.now() + maxWaitForLock);
     const maxDelay = Math.max(startingDelay, maxWaitForLock / 3);
 
-    const timeMultiple = random(1, 3, true);
+    const timeMultiple = Math.random() * (3 - 1) + 1; // Random from 1 to 3
 
     await backOff(acquireLock, {
         delayFirstAttempt: false,
