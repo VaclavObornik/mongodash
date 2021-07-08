@@ -52,7 +52,7 @@
     "@typescript-eslint/parser": "^4.17.0",
     "autoprefixer": "^9.8.6",
     "awesome-typescript-loader": "^5.2.1",
-    "babel-jest": "^26.6.3",
+    "babel-jest": "^27.0.6",
     "babel-preset-env": "^1.7.0",
     "coveralls": "^3.1.0",
     "deepdash": "^5.3.5",
