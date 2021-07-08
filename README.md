@@ -1,8 +1,6 @@
 <br>
 
-[![Mongodash](https://files.readme.io/72a6700-small-mongodash_4.png)](https://mongodash.readme.io)
-
-# https://mongodash.readme.io
+## https://mongodash.readme.io
 
 <br>
 
