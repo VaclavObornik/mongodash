@@ -1,7 +1,9 @@
 import { Collection } from 'mongodb';
 import { OnError } from './OnError';
 
-export function createContinuousLock(collection: Collection, documentId: string, lockProperty: string, lockTime: number, onError: OnError) {
+type StopContinuousLock = () => Promise<void>;
+
+export function createContinuousLock(collection: Collection, documentId: string, lockProperty: string, lockTime: number, onError: OnError): StopContinuousLock {
     let taskInProgress = true;
     let prolongLockTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let lastProlongPromise: Promise<unknown> = Promise.resolve(); // all errors has to be suppressed
