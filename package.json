@@ -66,7 +66,7 @@
     "jest-transform-stub": "^1.0.0",
     "jsdom": "16.6.0",
     "jsdom-global": "^3.0.2",
-    "lint-staged": "^8.2.1",
+    "lint-staged": "^11.0.0",
     "lodash": "^4.17.21",
     "mongodb": "latest",
     "node-sass": "^6.0.0",
