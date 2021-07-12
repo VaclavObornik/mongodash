@@ -57,7 +57,7 @@
     "coveralls": "^3.1.0",
     "deepdash": "^5.3.5",
     "eslint": "^7.22.0",
-    "eslint-config-prettier": "^6.15.0",
+    "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-no-only-tests": "^2.5.0",
     "eslint-plugin-prettier": "^3.3.1",
     "husky": "^7.0.1",
