@@ -1,6 +1,6 @@
 <br>
 
-## https://mongodash.com
+## http://mongodash.com
 
 <br>
 
