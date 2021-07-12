@@ -83,10 +83,13 @@
   },
   "keywords": [
     "mongodb",
+    "mongo",
     "utility",
     "library",
     "cron",
-    "lock"
+    "lock",
+    "scheduling",
+    "schedule"
   ],
   "author": {
     "name": "Václav Oborník",
