@@ -1,6 +1,6 @@
 <br>
 
-## https://mongodash.readme.io
+## https://mongodash.com
 
 <br>
 
