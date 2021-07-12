@@ -419,7 +419,7 @@ describe('cronTasks %i', () => {
                 await cronTask(task.taskId, getRunOnceInterval(new Date(Date.now() + 1000)), task.task);
             }
 
-            let explain: any;
+            let explain: any; // eslint-disable-line @typescript-eslint/no-explicit-any
             onNextCall(findNextTaskStub).callsFake(async (...args) => {
                 explain = await collection.find(args[0], args[2]).explain();
                 return findNextTaskStub.wrappedMethod.apply(collection, args);
@@ -1202,7 +1202,9 @@ describe('cronTasks %i', () => {
             let runCronTaskPromise: Promise<void>;
 
             const someTask1 = getTestingTask(async () => {
-                await new Promise((resolve) => setTimeout(resolve, 0));
+                await new Promise<void>((resolve) => {
+                    setTimeout(resolve, 0);
+                });
                 runCronTaskPromise = runCronTask(wantedTask.taskId);
                 await wait(100);
             });
