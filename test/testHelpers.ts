@@ -3,6 +3,7 @@ import { Collection, DbCollectionOptions } from 'mongodb';
 import { InitOptions, OnError } from '../src';
 const { getConnectionString, cleanTestingDatabases } = require('../tools/testingDatabase');
 
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function getNewInstance() {
     jest.resetModules();
     const mongodash = require('../src');
@@ -54,5 +55,7 @@ export function getNewInstance() {
 }
 
 export async function wait(milliseconds: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, milliseconds));
+    await new Promise<void>((resolve) => {
+        setTimeout(resolve, milliseconds);
+    });
 }
