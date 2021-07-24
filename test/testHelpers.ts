@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-import { Collection, DbCollectionOptions } from 'mongodb';
+import { Collection } from 'mongodb';
 import { InitOptions, OnError } from '../src';
 const { getConnectionString, cleanTestingDatabases } = require('../tools/testingDatabase');
 
@@ -28,9 +28,9 @@ export function getNewInstance() {
 
             // will serve single instances of collections during the tests so we can get
             // the same instances in test and manipulate with them using sinon
-            collectionFactory: (name: string, options: DbCollectionOptions) => {
+            collectionFactory: (name: string) => {
                 if (!(name in usedCollections)) {
-                    usedCollections[name] = mongodash.getCollection(name, options);
+                    usedCollections[name] = mongodash.getCollection(name);
                 }
                 collectionCalls[name] = (collectionCalls[name] || 0) + 1;
                 return usedCollections[name];
