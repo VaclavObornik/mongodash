@@ -2,7 +2,7 @@
 
 // import * as _debug from 'debug';
 import { backOff } from 'exponential-backoff';
-import { Collection, ObjectId } from 'mongodb';
+import { Collection, Document, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
@@ -27,11 +27,11 @@ export type LockerOptions = {
 
 const lockAcquiredMessage = 'The lock is already acquired.';
 
-let collectionPromise: Promise<Collection>;
+let collectionPromise: Promise<Collection<Document>>;
 async function getLockerCollection() {
     if (!collectionPromise) {
         collectionPromise = (async () => {
-            const collection = getCollection('locks');
+            const collection = getCollection<Document>('locks');
             await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
             return collection;
         })();
@@ -87,7 +87,8 @@ export async function withLock<T>(
         },
     });
 
-    const stopContinuousLock = createContinuousLock(collection, stringKey, expirationKey, expireIn, onError);
+    // todo solve the "any"
+    const stopContinuousLock = createContinuousLock(<any>collection, stringKey, expirationKey, expireIn, onError);
 
     try {
         // intentional await because of finally block

@@ -1,6 +1,6 @@
 // import * as _debug from 'debug';
 import { parseExpression as parseCronExpression, ParserOptions as CronExpressionParserOptions } from 'cron-parser';
-import { Collection, FilterQuery } from 'mongodb';
+import { Collection, Filter, Document } from 'mongodb';
 import parseDuration from 'parse-duration';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
@@ -23,7 +23,7 @@ type RunLogEntry = {
     error: string | null;
 };
 
-class TaskDocument {
+class TaskDocument implements Document {
     public runImmediately = false;
 
     public runLog = <RunLogEntry[]>[];
@@ -128,16 +128,12 @@ export async function runCronTask(taskId: TaskId): Promise<void> {
 
 function ensureIndex() {
     if (!state.ensureIndexPromise) {
-        state.ensureIndexPromise = state.collection.createIndexes([
-            {
-                name: 'runSinceIndex',
-                key: { runSince: 1, _id: 1, lockedTill: 1 },
-            },
-            {
-                name: 'runImmediatelyIndex',
-                key: { runImmediately: 1, _id: 1, lockedTill: 1 },
-                partialFilterExpression: { runImmediately: { $eq: true } },
-            },
+        state.ensureIndexPromise = Promise.all([
+            state.collection.createIndex({ runSince: 1, _id: 1, lockedTill: 1 }, { name: 'runSinceIndex' }),
+            state.collection.createIndex(
+                { runImmediately: 1, _id: 1, lockedTill: 1 },
+                { name: 'runImmediatelyIndex', partialFilterExpression: { runImmediately: { $eq: true } } },
+            ),
         ]);
     }
     return state.ensureIndexPromise;
@@ -160,7 +156,7 @@ function getTasksToProcessFilter() {
 }
 
 async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task | null> {
-    let filter: FilterQuery<TaskDocument>;
+    let filter: Filter<TaskDocument>;
 
     if (enforcedTask) {
         filter = { $and: [{ _id: enforcedTask.taskId }, getUnlockedFilter()] };
@@ -229,7 +225,8 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     // debug(`processing task ${task.taskId}`);
     let taskError: Error | null = null;
 
-    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
+    // todo solve the "any"
+    const stopContinuousLock = createContinuousLock(<any>state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
     try {
         await (function mongoDashRunTaskNotCyclic() {
