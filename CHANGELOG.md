@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/VaclavObornik/mongodash/compare/v0.9.7...v0.10.0) (2021-07-24)
+
+
+### Features
+
+* **mongodb driver version:** peer dependency updated to mongodb@4 ([c4ce719](https://github.com/VaclavObornik/mongodash/commit/c4ce7193b81b80f44eb2d1033c5ed8ad07004b36))
+
 ## [0.9.7](https://github.com/VaclavObornik/mongodash/compare/v0.9.6...v0.9.7) (2021-07-14)
 
 
