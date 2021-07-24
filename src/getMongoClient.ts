@@ -25,15 +25,12 @@ export async function init(options: InitOptions): Promise<void> {
         }
         mongoClientInstance = options.mongoClient;
     } else if ('uri' in options) {
-        mongoClientInstance = new MongoClient(options.uri, {
-            useUnifiedTopology: true,
-            ...options.clientOptions,
-        });
+        mongoClientInstance = new MongoClient(options.uri, options.clientOptions);
     } else {
         throw new Error('The `mongoClient` or the connection `uri` parameter has to be specified.');
     }
 
-    if (!mongoClientInstance.isConnected() && options.autoConnect) {
+    if (options.autoConnect) {
         await mongoClientInstance.connect();
     }
 }
