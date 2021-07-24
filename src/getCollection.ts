@@ -1,9 +1,9 @@
 'use strict';
 
-import { Collection, DbCollectionOptions } from 'mongodb';
+import { Collection } from 'mongodb';
 import { getMongoClient } from './getMongoClient';
 
-export type CollectionFactory = <T>(name: string, options?: DbCollectionOptions) => Collection<T> | null;
+export type CollectionFactory = <T>(name: string) => Collection<T> | null;
 
 let collectionFactory: CollectionFactory | null;
 
@@ -24,16 +24,16 @@ export function init(options: InitOptions): void {
 
 let depthCallCounter = 0;
 
-export function getCollection<T>(name: string, options: DbCollectionOptions = {}): Collection<T> {
+export function getCollection<T>(name: string): Collection<T> {
     try {
         depthCallCounter++;
         if (collectionFactory && depthCallCounter === 1) {
-            const collection: Collection | null = collectionFactory(name, options);
+            const collection: Collection<T> | null = collectionFactory(name);
             if (collection) {
                 return collection;
             }
         }
-        return getMongoClient().db().collection(name, options);
+        return getMongoClient().db().collection(name);
     } finally {
         depthCallCounter--;
     }

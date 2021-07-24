@@ -3,7 +3,7 @@ import * as _debug from 'debug';
 // @ts-ignore
 import { paths } from 'deepdash/standalone';
 import { isEmpty, isEqual, matches, pick, times, uniqueId } from 'lodash';
-import { Collection, UpdateQuery } from 'mongodb';
+import { Collection, UpdateFilter } from 'mongodb';
 import * as sinon from 'sinon';
 import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
@@ -75,7 +75,7 @@ describe('cronTasks %i', () => {
     let prolongLockStub: SinonStub;
     let registerTaskStub: SinonStub;
     let findNextRunSinceStub: SinonStub;
-    let createIndexesStub: SinonStub;
+    let createIndexStub: SinonStub;
 
     beforeEach(() => {
         findNextTaskStub = sandbox.stub(collection, 'findOneAndUpdate').callThrough();
@@ -85,7 +85,7 @@ describe('cronTasks %i', () => {
         // @ts-ignore
         finishTaskStub = updateOneStub.withArgs(
             sinon.match.any,
-            sinon.match((update: UpdateQuery<TaskDocument>) =>
+            sinon.match((update: UpdateFilter<TaskDocument>) =>
                 isEqual(paths(update), ['$set.runSince', '$set.lockedTill', '$set["runLog.0.error"]', '$set["runLog.0.finishedAt"]']),
             ),
         );
@@ -97,19 +97,19 @@ describe('cronTasks %i', () => {
         prolongLockStub = updateOneStub.withArgs(
             sinon.match.any,
             // updating only runSince
-            sinon.match((update: UpdateQuery<TaskDocument>) => isEqual(paths(update), ['$set.lockedTill'])),
+            sinon.match((update: UpdateFilter<TaskDocument>) => isEqual(paths(update), ['$set.lockedTill'])),
         );
         prolongLockStub.wrappedMethod = updateOneStub.wrappedMethod;
 
         // @ts-ignore
         registerTaskStub = updateOneStub.withArgs(
             sinon.match.any,
-            sinon.match((update: UpdateQuery<TaskDocument>) => !!update.$setOnInsert),
+            sinon.match((update: UpdateFilter<TaskDocument>) => !!update.$setOnInsert),
         );
 
         findNextRunSinceStub = sandbox.stub(collection, 'findOne').callThrough();
 
-        createIndexesStub = sandbox.stub(collection, 'createIndexes').callThrough();
+        createIndexStub = sandbox.stub(collection, 'createIndex').callThrough();
     });
 
     function distantFutureInterval() {
@@ -200,7 +200,7 @@ describe('cronTasks %i', () => {
             }
 
             assert(registerTaskStub.notCalled, 'No query should be done to database without a registered task');
-            assert(createIndexesStub.notCalled, 'No query should be done to database without a registered task');
+            assert(createIndexStub.notCalled, 'No query should be done to database without a registered task');
             assert(findNextRunSinceStub.notCalled, 'No query should be done to database without a registered task');
             assert(prolongLockStub.notCalled, 'No query should be done to database without a registered task');
             assert(finishTaskStub.notCalled, 'No query should be done to database without a registered task');
@@ -236,7 +236,7 @@ describe('cronTasks %i', () => {
                     'The index should be created',
                 );
             });
-            assert(createIndexesStub.calledOnce, 'The createIndex function has to be called once only');
+            assert(createIndexStub.calledTwice, 'The createIndex function has to be called exactly twice');
         });
 
         it('should call getCollection only once', async () => {
@@ -260,7 +260,7 @@ describe('cronTasks %i', () => {
 
         it('should store a task to database in a right form', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
             await cronTask(taskId, () => new Date('2050-01-01T00:00:00Z'), task);
             assert.deepStrictEqual(await getDocument(), {
                 _id: taskId,
@@ -710,14 +710,14 @@ describe('cronTasks %i', () => {
     describe('Interval - timing logic', () => {
         it('should work with function returning date', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
             await cronTask(taskId, async () => new Date('2050-01-01T00:00:00Z'), task);
             assert.deepStrictEqual((await getDocument()).runSince, new Date('2050-01-01T00:00:00Z'));
         });
 
         it('should work with function returning number', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
             const interval = 7000;
             const timeBefore = Date.now();
             await cronTask(taskId, async () => interval, task);
@@ -729,7 +729,7 @@ describe('cronTasks %i', () => {
 
         it('should work with function returning number', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
             const interval = 7000;
             const timeBefore = Date.now();
             await cronTask(taskId, async () => '7s', task);
@@ -761,7 +761,7 @@ describe('cronTasks %i', () => {
             const expectedDate = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
             await cronTask(taskId, expression, task);
 
             assert.deepStrictEqual((await getDocument()).runSince, expectedDate);
@@ -794,7 +794,7 @@ describe('cronTasks %i', () => {
             const duration = 1000 * 60 * (60 + 5);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
 
             const minExpectedDate = new Date(Date.now() + duration);
             await cronTask(taskId, expression, task);
@@ -815,7 +815,7 @@ describe('cronTasks %i', () => {
             const duration = 1000 * 60 * (60 + 30);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
 
             const minExpectedDate = new Date(Date.now() + duration);
             await cronTask(taskId, duration, task);
@@ -844,7 +844,7 @@ describe('cronTasks %i', () => {
                 documentDuringProcessing = await getDocument();
             });
 
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
 
             const scheduleError = new Error('Something bad happened');
             const intervalFunction = sandbox.spy(() => {
@@ -869,7 +869,7 @@ describe('cronTasks %i', () => {
 
         it('should be ok when returned date is in the past', async () => {
             const { taskId, task, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), null);
+            assert.deepStrictEqual(await findDocument(), undefined);
 
             const registrationTime = new Date();
 
