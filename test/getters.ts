@@ -28,7 +28,6 @@ describe('getters', () => {
                 await instance.mongodash.init({ uri: getConnectionString() });
                 const client = instance.mongodash.getMongoClient();
                 assert.strictEqual(client.constructor.name, 'MongoClient');
-                assert.strictEqual(client.s.options.useUnifiedTopology, true, 'The useUnifiedTopology should be used automatically');
             } finally {
                 await instance.cleanUpInstance();
             }
@@ -49,13 +48,13 @@ describe('getters', () => {
         it('should not be possible to init with wrong argument combination', async () => {
             const instance1 = getNewInstance();
             await assert.rejects(
-                () => instance1.mongodash.init({ mongoClient: new MongoClient('aaa'), uri: 'aaa' }),
+                () => instance1.mongodash.init({ mongoClient: new MongoClient(getConnectionString()), uri: 'aaa' }),
                 /Error: It is not possible use uri with ready mongoClient instance./,
             );
 
             const instance2 = getNewInstance();
             await assert.rejects(
-                () => instance2.mongodash.init({ mongoClient: new MongoClient('aaa'), clientOptions: {} }),
+                () => instance2.mongodash.init({ mongoClient: new MongoClient(getConnectionString()), clientOptions: {} }),
                 /Error: It is not possible use clientOptions with ready mongoClient instance./,
             );
 
@@ -73,7 +72,7 @@ describe('getters', () => {
             const instance1 = getNewInstance();
             try {
                 await instance1.mongodash.init({ uri });
-                assert.strictEqual(instance1.mongodash.getMongoClient().isConnected(), true);
+                assert.strictEqual(await instance1.mongodash.getCollection('aaa').countDocuments(), 0);
             } finally {
                 await instance1.cleanUpInstance();
             }
@@ -82,7 +81,7 @@ describe('getters', () => {
             const instance2 = getNewInstance();
             try {
                 await instance2.mongodash.init({ uri, autoConnect: true });
-                assert.strictEqual(instance2.mongodash.getMongoClient().isConnected(), true);
+                assert.strictEqual(await instance2.mongodash.getCollection('aaa').countDocuments(), 0);
             } finally {
                 await instance2.cleanUpInstance();
             }
@@ -91,7 +90,10 @@ describe('getters', () => {
             const instance3 = getNewInstance();
             try {
                 await instance3.mongodash.init({ uri, autoConnect: false });
-                assert.strictEqual(instance3.mongodash.getMongoClient().isConnected(), false);
+                assert.throws(
+                    () => instance3.mongodash.getCollection('aaa').countDocuments(),
+                    /MongoDriverError: MongoClient must be connected to perform this operation/,
+                );
             } finally {
                 await instance3.cleanUpInstance();
             }
