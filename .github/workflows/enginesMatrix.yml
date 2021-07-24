@@ -16,30 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: [ 14.x, 12.x, 10.x ]
-        mongodb-version: [ 4.4, 3.6 ]
-        mongodb-driver-version: [ 3.6, 3.0 ]
-        exclude:
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.5
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.4
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.3
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.2
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.1
-          - mongodb-version: 4.4
-            mongodb-driver-version: 3.0
-          - mongodb-version: 4.2
-            mongodb-driver-version: 3.2
-          - mongodb-version: 4.2
-            mongodb-driver-version: 3.1
-          - mongodb-version: 4.2
-            mongodb-driver-version: 3.0
-          - mongodb-version: 4.0
-            mongodb-driver-version: 3.0
+        node-version: [ 16.x, 14.x, 12.x ]
+        mongodb-version: [ 5, 4.4, 3.6 ]
+        mongodb-driver-version: [ 4.0 ]
     env:
       MONGODB_VERSION: ${{ matrix.mongodb-version }}
     steps:
