@@ -1,3 +1,10 @@
+## [0.10.4](https://github.com/VaclavObornik/mongodash/compare/v0.10.3...v0.10.4) (2021-07-26)
+
+
+### Bug Fixes
+
+* added tests for withLock function ([dae54b2](https://github.com/VaclavObornik/mongodash/commit/dae54b23e9a2d4ad5277b8fb43ede1c586526b40))
+
 ## [0.10.3](https://github.com/VaclavObornik/mongodash/compare/v0.10.2...v0.10.3) (2021-07-26)
 
 
