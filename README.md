@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/VaclavObornik/mongodash/master/logo.png" alt="Mongodash" height="150" />
 
-#### A modern JavaScript & Typescript MongoDB-based utility library allowing to develop common app requirements incredible simple.
+A modern JavaScript & Typescript MongoDB-based utility library allowing to develop common app requirements incredible simple.
 
 ![Release](https://github.com/VaclavObornik/mongodash/workflows/Release/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/VaclavObornik/mongodash/badge.svg?branch=master)](https://coveralls.io/github/VaclavObornik/mongodash?branch=master)
@@ -13,6 +13,8 @@ See full documentation on [http://mongodash.com](http://mongodash.com)
 
 ---
 
+<br>
+
 Installation:
 ```bash
 npm install mongodash
@@ -22,11 +24,15 @@ Initialization
 ```javascript
 const mongodash = require('mongodash');
 
-await mongodash.init({ uri: 'mongodb://mongodb0.example.com:27017/myDatabase' });
+await mongodash.init({
+    uri: 'mongodb://mongodb0.example.com:27017/myDatabase' 
+});
 ```
 See more initialization options [here](https://mongodash.readme.io/docs/initialization).
 
-### cronTask
+<br>
+
+## cronTask
 ```javascript
 const { cronTask } = require('mongodash');
 
@@ -38,7 +44,9 @@ await cronTask('my-task-id', '5m 20s', async () => {
 ```
 See detailed description and more cron tasks methods [here](https://mongodash.readme.io/docs/cron-tasks).
 
-### withLock
+<br>
+
+## withLock
 
 ```javascript
 const { withLock } from 'mongodash';
@@ -55,7 +63,9 @@ await withLock('my-lock-id', async () => {
 ```
 See detailed description [here](https://mongodash.readme.io/docs/withlock).
 
-### withTransaction
+<br>
+
+## withTransaction
 ```javascript
 const { withTransaction, getCollection } = require('mongodash');
 
@@ -73,6 +83,8 @@ const createdDocuments = await withTransaction(async (session) => {
 ```
 See detailed description [here](https://mongodash.readme.io/docs/withtransaction).
 
+<br>
+
 ### getCollection
 ```javascript
 const { getCollection } = require('mongodash');
@@ -80,6 +92,8 @@ const { getCollection } = require('mongodash');
 const myCollection = getCollection('myCollectionName');
 ```
 See detailed description [here](https://mongodash.readme.io/docs/getters).
+
+<br>
 
 ### getMongoClient
 ```javascript
