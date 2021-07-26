@@ -78,7 +78,9 @@
     "cron",
     "lock",
     "scheduling",
-    "schedule"
+    "schedule",
+    "critical section",
+    "transaction"
   ],
   "author": {
     "name": "Václav Oborník",
