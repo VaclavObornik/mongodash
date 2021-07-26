@@ -26,13 +26,14 @@ export type LockerOptions = {
 };
 
 const lockAcquiredMessage = 'The lock is already acquired.';
+const expirationKey = 'expiresAt';
 
 let collectionPromise: Promise<Collection<Document>>;
 async function getLockerCollection() {
     if (!collectionPromise) {
         collectionPromise = (async () => {
             const collection = getCollection<Document>('locks');
-            await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+            await collection.createIndex({ [expirationKey]: 1 }, { name: 'expiresAtIndex', expireAfterSeconds: 0 });
             return collection;
         })();
     }
@@ -46,7 +47,6 @@ export async function withLock<T>(
 ): Promise<T> {
     const lockId = new ObjectId();
     const stringKey = `${key}`;
-    const expirationKey = 'expiresAt';
 
     const collection = await getLockerCollection();
 
