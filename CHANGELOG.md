@@ -1,3 +1,11 @@
+## [0.10.3](https://github.com/VaclavObornik/mongodash/compare/v0.10.2...v0.10.3) (2021-07-26)
+
+
+### Bug Fixes
+
+* unified readme styles ([7f153e6](https://github.com/VaclavObornik/mongodash/commit/7f153e6f09d791296793991dcfdbfab0a7d10277))
+* updated Readme badges ([e0a4071](https://github.com/VaclavObornik/mongodash/commit/e0a4071cfb1f5a358bfd710bd82dc348b2ee72fa))
+
 ## [0.10.2](https://github.com/VaclavObornik/mongodash/compare/v0.10.1...v0.10.2) (2021-07-26)
 
 
