@@ -1,3 +1,10 @@
+## [0.10.1](https://github.com/VaclavObornik/mongodash/compare/v0.10.0...v0.10.1) (2021-07-26)
+
+
+### Bug Fixes
+
+* added package.json keywords ([c6ac7d1](https://github.com/VaclavObornik/mongodash/commit/c6ac7d11a19b72dbb58d13135be058f4430522c7))
+
 # [0.10.0](https://github.com/VaclavObornik/mongodash/compare/v0.9.7...v0.10.0) (2021-07-24)
 
 
