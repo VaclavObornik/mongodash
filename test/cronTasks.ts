@@ -210,8 +210,8 @@ describe('cronTasks %i', () => {
         // NOTE THIS TEST HAS TO BE THE FIRST TEST WITH A TASK
         it('should create proper indexes', async () => {
             const expectedIndexes = [
-                { name: 'runSinceIndex', key: { _id: 1, runSince: 1 } },
-                { name: 'runImmediatelyIndex', key: { runImmediately: 1, _id: 1 } },
+                { name: 'runSinceIndex', key: { runSince: 1, _id: 1, lockedTill: 1 } },
+                { name: 'runImmediatelyIndex', key: { runImmediately: 1, _id: 1, lockedTill: 1 } },
             ];
 
             const getIndexes = () => collection.listIndexes().toArray();
@@ -232,7 +232,7 @@ describe('cronTasks %i', () => {
 
             expectedIndexes.forEach((index) => {
                 assert(
-                    indexes.some(({ key, name }) => matches(index.key)(key) && name === index.name),
+                    indexes.some(({ key, name }) => isEqual(index.key, key) && name === index.name),
                     'The index should be created',
                 );
             });
