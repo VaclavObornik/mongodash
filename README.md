@@ -85,7 +85,7 @@ See detailed description [here](https://mongodash.readme.io/docs/withtransaction
 
 <br>
 
-### getCollection
+## getCollection
 ```javascript
 const { getCollection } = require('mongodash');
 
@@ -95,7 +95,7 @@ See detailed description [here](https://mongodash.readme.io/docs/getters).
 
 <br>
 
-### getMongoClient
+## getMongoClient
 ```javascript
 const { getMongoClient } = require('mongodash');
 
