@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import { Collection } from 'mongodb';
+import * as _debug from 'debug';
 import { InitOptions, OnError } from '../src';
 const { getConnectionString, cleanTestingDatabases } = require('../tools/testingDatabase');
 
+const debug = _debug('mongodash:testHelpers');
+
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function getNewInstance() {
+    debug('getNewInstance');
     jest.resetModules();
     const mongodash = require('../src');
 
@@ -19,6 +23,7 @@ export function getNewInstance() {
     const usedCollections: { [key: string]: Collection } = {};
 
     const initInstance = async (initOptions: Partial<InitOptions> = {}) => {
+        debug('initInstance');
         await cleanTestingDatabases();
 
         await mongodash.init({
@@ -41,6 +46,7 @@ export function getNewInstance() {
     };
 
     const cleanUpInstance = async () => {
+        debug('cleanUpInstance');
         mongodash.stopCronTasks();
         await mongodash.getMongoClient().close();
     };
