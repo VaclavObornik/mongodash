@@ -1,3 +1,10 @@
+## [0.10.6](https://github.com/VaclavObornik/mongodash/compare/v0.10.5...v0.10.6) (2021-07-30)
+
+
+### Bug Fixes
+
+* run test in band to increase stability ([4c8c24a](https://github.com/VaclavObornik/mongodash/commit/4c8c24a0ab33fcc19e5c9e08ce5892dff3630980))
+
 ## [0.10.5](https://github.com/VaclavObornik/mongodash/compare/v0.10.4...v0.10.5) (2021-07-30)
 
 
