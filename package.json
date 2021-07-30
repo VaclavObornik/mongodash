@@ -13,7 +13,7 @@
     "test": "run-p test:lint test:coverage --aggregate-output",
     "test:lint": "eslint ./src/**/*.ts ./test/**/*.ts",
     "test:simple": "jest",
-    "test:coverage": "jest --coverage",
+    "test:coverage": "jest --coverage --runInBand --forceExit",
     "test:coverage:noCache": "npm run test:coverage -- --no-cache",
     "test:watch": "jest --coverage --watch",
     "test:prod": "run-p test:lint test:coverage:noCache --aggregate-output",
