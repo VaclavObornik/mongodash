@@ -4,10 +4,10 @@
     <node-options value="" />
     <jest-package value="$PROJECT_DIR$/node_modules/jest" />
     <working-dir value="$PROJECT_DIR$" />
-    <jest-options value="--watchAll --coverage --runInBand" />
+    <jest-options value="--watchAll --coverage -runInBand" />
     <envs>
       <env name="DEBUG" value="mongodash:*" />
-      <env name="KEEP_SINGLE_DATABASE" value="true" />
+      <env name="KEEP_SINGLE_DATABASEXXX" value="true" />
     </envs>
     <scope-kind value="ALL" />
     <method v="2" />
