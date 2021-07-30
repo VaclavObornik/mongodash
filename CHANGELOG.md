@@ -1,3 +1,10 @@
+## [0.10.5](https://github.com/VaclavObornik/mongodash/compare/v0.10.4...v0.10.5) (2021-07-30)
+
+
+### Bug Fixes
+
+* stabilized tests and max wait time for withLock ([86c6e2d](https://github.com/VaclavObornik/mongodash/commit/86c6e2d27d153c609586731776cc5a0a8ae37d81))
+
 ## [0.10.4](https://github.com/VaclavObornik/mongodash/compare/v0.10.3...v0.10.4) (2021-07-26)
 
 
