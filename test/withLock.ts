@@ -51,10 +51,10 @@ describe('withLock', () => {
 
         const successfulJobs = stubs.filter((stub) => stub.called);
         const maxSuccessfulJobs = maxWaitForLock / jobTime;
-        const minSuccessfulJobs = maxSuccessfulJobs - 1;
+        const minSuccessfulJobs = maxSuccessfulJobs * 0.5;
         assert(
             successfulJobs.length >= minSuccessfulJobs,
-            `Count of successfulJobs (${successfulJobs.length}) is lower than minSuccessfulJobs (${minSuccessfulJobs})`,
+            `Count of successfulJobs (${successfulJobs.length}) is lower than minSuccessfulJobs (${minSuccessfulJobs}); maxSuccessfulJobs (${maxSuccessfulJobs})`,
         );
         assert(
             successfulJobs.length <= maxSuccessfulJobs,
@@ -72,16 +72,18 @@ describe('withLock', () => {
 
     it.each([100, 500, 1000])('should throw if the lock cannot be acquire in a %i ms', async (time) => {
         const { withLock } = instance.mongodash;
-        const key = 1;
+        const key = `key-${time}`;
         const promise = withLock(key, async () => {
             await wait(time * 2);
         });
 
         const start = new Date();
         await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time }), /The lock is already acquired./);
-        const realWait = Date.now() - start.getTime();
-        assert(realWait >= time * 0.66, 'The wait time was not long enough.');
-        assert(realWait <= time, 'The wait time was too long.');
+        const end = new Date();
+        const realWait = end.getTime() - start.getTime();
+        debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
+        assert(realWait >= time * 0.66, `The wait time was not long enough (${realWait}).`);
+        assert(realWait <= time, `The wait time was too long (${realWait})`);
 
         await promise;
     });

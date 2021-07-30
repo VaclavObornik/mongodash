@@ -1,11 +1,11 @@
 'use strict';
 
 // import * as _debug from 'debug';
-import { backOff } from 'exponential-backoff';
 import { Collection, Document, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
+import { random } from 'lodash';
 
 // const debug = _debug('mongodash:withLock');
 
@@ -47,6 +47,7 @@ export async function withLock<T>(
 ): Promise<T> {
     const lockId = new ObjectId();
     const stringKey = `${key}`;
+    const maxDate = new Date(Date.now() + maxWaitForLock);
 
     const collection = await getLockerCollection();
 
@@ -68,32 +69,34 @@ export async function withLock<T>(
         }
     };
 
-    const maxDate = new Date(Date.now() + maxWaitForLock);
     const maxDelay = Math.max(startingDelay, maxWaitForLock / 3);
 
-    const timeMultiple = Math.random() * (3 - 1) + 1; // Random from 1 to 3
+    for (let n = 0; n < Number.MAX_SAFE_INTEGER; n++) {
+        try {
+            await acquireLock();
+            break;
+        } catch (err) {
+            const randomMultiplier = random(1, 1.2, true);
+            const waitTime = Math.min(2 ** n * randomMultiplier * startingDelay, maxDelay);
+            const nextTime = new Date(Date.now() + waitTime);
+            // debug(`wait time ${waitTime} for ${n}`);
 
-    await backOff(acquireLock, {
-        delayFirstAttempt: false,
-        jitter: 'none', // 'full' randomize is not convenient, it multiplies 0-1 times, so we randomize timeMultiple at least
-        numOfAttempts: Number.MAX_SAFE_INTEGER,
-        startingDelay,
-        timeMultiple,
-        maxDelay,
-        retry: (err: Error /*, n*/) => {
-            const possibleNextRetry = new Date(Date.now() + maxDelay);
-            // debug(`resolving retry ${n}, timeMultiple ${timeMultiple}, maxDate ${maxDate.toLocaleTimeString()}.${maxDate.getMilliseconds()}, possibleNextRetry ${possibleNextRetry.toLocaleTimeString()}.${possibleNextRetry.getMilliseconds()}`);
-            return err.message === lockAcquiredMessage && possibleNextRetry < maxDate;
-        },
-    });
+            if (err.message === lockAcquiredMessage && nextTime < maxDate) {
+                await new Promise((resolve) => setTimeout(resolve, waitTime));
+            } else {
+                throw err;
+            }
+        }
+    }
 
     // todo solve the "any"
     const stopContinuousLock = createContinuousLock(<any>collection, stringKey, expirationKey, expireIn, onError);
 
+    let value: T;
     try {
-        // intentional await because of finally block
-        return await callback();
+        value = await callback();
     } finally {
         await Promise.all([stopContinuousLock(), releaseLock()]);
     }
+    return value;
 }
