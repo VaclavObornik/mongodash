@@ -1,12 +1,9 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import * as assert from 'assert';
 import _debug from 'debug';
-import { isEqual, matches, noop, times } from 'lodash';
+import { isEqual, noop, times } from 'lodash';
 import { createSandbox } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
-import { IndexSpecification } from 'mongodb';
-import { equal } from 'assert';
-import { unexpectedExitRegistry } from '@stryker-mutator/core/dist/src/di/core-tokens';
 
 const debug = _debug('mongodash:withLockTests');
 
@@ -16,7 +13,9 @@ describe('withLock', () => {
         instance = getNewInstance();
         await instance.initInstance();
     });
-    afterEach(() => instance.cleanUpInstance());
+    afterEach(async () => {
+        await instance.cleanUpInstance();
+    });
 
     const sandbox = createSandbox();
     afterEach(() => sandbox.verifyAndRestore());
@@ -70,20 +69,21 @@ describe('withLock', () => {
         );
     }, 7000);
 
-    it.each([100, 500, 1000])('should throw if the lock cannot be acquire in a %i ms', async (time) => {
+    it.each([100, 500, 1000])('should throw if the lock cannot be acquired in a %i ms', async (time) => {
         const { withLock } = instance.mongodash;
         const key = `key-${time}`;
         const promise = withLock(key, async () => {
             await wait(time * 2);
         });
 
+        const startingDelay = 50;
         const start = new Date();
-        await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time }), /The lock is already acquired./);
+        await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time, startingDelay }), /The lock is already acquired./);
         const end = new Date();
         const realWait = end.getTime() - start.getTime();
         debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
-        assert(realWait >= time * 0.66, `The wait time was not long enough (${realWait}).`);
-        assert(realWait <= time, `The wait time was too long (${realWait})`);
+        assert(realWait >= time - startingDelay, `The wait time was not long enough (${realWait}).`);
+        assert(realWait <= time + startingDelay, `The wait time was too long (${realWait})`);
 
         await promise;
     });
@@ -96,7 +96,7 @@ describe('withLock', () => {
             key,
             async () => {
                 const timeDiff = Date.now() - start.getTime();
-                assert(timeDiff < 50, `It taken too long to acquire lock: ${timeDiff}`);
+                assert(timeDiff < 100, `It taken too long to acquire lock: ${timeDiff}`);
             },
             { maxWaitForLock: 5000, startDelay: 1000 },
         );
