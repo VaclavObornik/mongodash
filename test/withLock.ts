@@ -70,7 +70,7 @@ describe.only('withLock', () => {
         );
     }, 7000);
 
-    it.each([100, 500, 1000])('should throw if the lock cannot be acquire in a %i ms', async (time) => {
+    it.each([100, 500, 1000])('should throw if the lock cannot be acquired in a %i ms', async (time) => {
         const { withLock } = instance.mongodash;
         const key = `key-${time}`;
         const promise = withLock(key, async () => {
