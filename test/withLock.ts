@@ -10,7 +10,7 @@ import { unexpectedExitRegistry } from '@stryker-mutator/core/dist/src/di/core-t
 
 const debug = _debug('mongodash:withLockTests');
 
-describe('withLock', () => {
+describe.only('withLock', () => {
     let instance: ReturnType<typeof getNewInstance>;
     beforeEach(async () => {
         instance = getNewInstance();
@@ -96,7 +96,7 @@ describe('withLock', () => {
             key,
             async () => {
                 const timeDiff = Date.now() - start.getTime();
-                assert(timeDiff < 50, `It taken too long to acquire lock: ${timeDiff}`);
+                assert(timeDiff < 100, `It taken too long to acquire lock: ${timeDiff}`);
             },
             { maxWaitForLock: 5000, startDelay: 1000 },
         );
