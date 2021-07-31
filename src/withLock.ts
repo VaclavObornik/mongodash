@@ -48,15 +48,17 @@ export async function withLock<T>(
     const lockId = new ObjectId();
     const stringKey = `${key}`;
     const maxDate = new Date(Date.now() + maxWaitForLock);
+    // maxDate is lowered for a queryDurationEstimate because we will try to acquire the lock after last wait
 
     const collection = await getLockerCollection();
 
     const releaseLock = () => collection.deleteOne({ _id: stringKey, lockId });
 
+    let lastAcquireDuration = 0;
     const acquireLock = async () => {
         // debug('acquireLock called');
+        const now = new Date();
         try {
-            const now = new Date();
             const matcher = { _id: stringKey, [expirationKey]: { $lte: now } };
             const doc = { lockId, [expirationKey]: new Date(now.getTime() + expireIn) };
             await collection.replaceOne(matcher, doc, { upsert: true });
@@ -66,6 +68,9 @@ export async function withLock<T>(
             }
             await releaseLock(); // the lock could be possible acquired
             throw err;
+        } finally {
+            lastAcquireDuration = Date.now() - now.getTime();
+            // debug(`lastAcquireDuration: ${lastAcquireDuration}`);
         }
     };
 
@@ -77,11 +82,20 @@ export async function withLock<T>(
             break;
         } catch (err) {
             const randomMultiplier = random(1, 1.2, true);
-            const waitTime = Math.min(2 ** n * randomMultiplier * startingDelay, maxDelay);
-            const nextTime = new Date(Date.now() + waitTime);
+            let waitTime = Math.min(2 ** n * randomMultiplier * startingDelay, maxDelay);
+            let nextTime = new Date(Date.now() + waitTime);
+
+            const ultimateAttemptStart = new Date(maxDate.getTime() - lastAcquireDuration);
+            const restTime = ultimateAttemptStart.getTime() - Date.now();
+            if (nextTime >= ultimateAttemptStart && restTime >= startingDelay) {
+                // debug(`optimizing last wait time`);
+                waitTime = restTime;
+                nextTime = ultimateAttemptStart;
+            }
+
             // debug(`wait time ${waitTime} for ${n}`);
 
-            if (err.message === lockAcquiredMessage && nextTime < maxDate) {
+            if (err.message === lockAcquiredMessage && nextTime <= ultimateAttemptStart) {
                 await new Promise((resolve) => setTimeout(resolve, waitTime));
             } else {
                 throw err;
@@ -92,11 +106,20 @@ export async function withLock<T>(
     // todo solve the "any"
     const stopContinuousLock = createContinuousLock(<any>collection, stringKey, expirationKey, expireIn, onError);
 
+    const cleanUp = () => Promise.all([stopContinuousLock(), releaseLock()]);
+
     let value: T;
+    let err: Error;
     try {
         value = await callback();
-    } finally {
-        await Promise.all([stopContinuousLock(), releaseLock()]);
+    } catch (error) {
+        err = error;
     }
-    return value;
+
+    await cleanUp();
+    if (err!) {
+        throw err;
+    }
+
+    return value!;
 }
