@@ -1,3 +1,10 @@
+## [0.10.7](https://github.com/VaclavObornik/mongodash/compare/v0.10.6...v0.10.7) (2021-07-31)
+
+
+### Bug Fixes
+
+* withLock can calculate last possible attempt in more accurate way ([f4dffbe](https://github.com/VaclavObornik/mongodash/commit/f4dffbe5521b0b834ddc2a4af975caa31f2ae127))
+
 ## [0.10.6](https://github.com/VaclavObornik/mongodash/compare/v0.10.5...v0.10.6) (2021-07-30)
 
 
