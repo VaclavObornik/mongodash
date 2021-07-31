@@ -1,22 +1,21 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import * as assert from 'assert';
 import _debug from 'debug';
-import { isEqual, matches, noop, times } from 'lodash';
+import { isEqual, noop, times } from 'lodash';
 import { createSandbox } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
-import { IndexSpecification } from 'mongodb';
-import { equal } from 'assert';
-import { unexpectedExitRegistry } from '@stryker-mutator/core/dist/src/di/core-tokens';
 
 const debug = _debug('mongodash:withLockTests');
 
-describe.only('withLock', () => {
+describe('withLock', () => {
     let instance: ReturnType<typeof getNewInstance>;
     beforeEach(async () => {
         instance = getNewInstance();
         await instance.initInstance();
     });
-    afterEach(() => instance.cleanUpInstance());
+    afterEach(async () => {
+        await instance.cleanUpInstance();
+    });
 
     const sandbox = createSandbox();
     afterEach(() => sandbox.verifyAndRestore());
@@ -77,13 +76,14 @@ describe.only('withLock', () => {
             await wait(time * 2);
         });
 
+        const startingDelay = 50;
         const start = new Date();
-        await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time }), /The lock is already acquired./);
+        await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time, startingDelay }), /The lock is already acquired./);
         const end = new Date();
         const realWait = end.getTime() - start.getTime();
         debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
-        assert(realWait >= time * 0.66, `The wait time was not long enough (${realWait}).`);
-        assert(realWait <= time, `The wait time was too long (${realWait})`);
+        assert(realWait >= time - startingDelay, `The wait time was not long enough (${realWait}).`);
+        assert(realWait <= time + startingDelay, `The wait time was too long (${realWait})`);
 
         await promise;
     });
