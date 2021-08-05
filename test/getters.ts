@@ -90,10 +90,7 @@ describe('getters', () => {
             const instance3 = getNewInstance();
             try {
                 await instance3.mongodash.init({ uri, autoConnect: false });
-                assert.throws(
-                    () => instance3.mongodash.getCollection('aaa').countDocuments(),
-                    /MongoDriverError: MongoClient must be connected to perform this operation/,
-                );
+                assert.throws(() => instance3.mongodash.getCollection('aaa').countDocuments(), /MongoClient must be connected to perform this operation/);
             } finally {
                 await instance3.cleanUpInstance();
             }
