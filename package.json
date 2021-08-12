@@ -40,7 +40,7 @@
     "@stryker-mutator/core": "^5.2.1",
     "@stryker-mutator/jest-runner": "^5.2.1",
     "@types/debug": "^4.1.5",
-    "@types/jest": "^26.0.24",
+    "@types/jest": "^27.0.0",
     "@types/lodash": "^4.14.168",
     "@types/node": "^16.3.1",
     "@types/sinon": "^10.0.0",
