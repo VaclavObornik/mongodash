@@ -25,7 +25,7 @@ export function createContinuousLock(
                     await collection.updateOne({ _id: documentId }, { $set: { lockedTill: new Date(Date.now() + lockTime) } });
                 } catch (err) {
                     // debug('Error during task prolong', err);
-                    onError(err);
+                    onError(err as Error);
                 } finally {
                     if (taskInProgress) {
                         // debug('scheduling next lock prolong');
