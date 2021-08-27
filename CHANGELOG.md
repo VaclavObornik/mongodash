@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/VaclavObornik/mongodash/compare/v1.0.0...v1.0.1) (2021-08-27)
+
+
+### Bug Fixes
+
+* added ES Module Entrypoint ([9899de6](https://github.com/VaclavObornik/mongodash/commit/9899de6d3a93b2de915a33f9fc05ec1c2f68b1a6))
+
 ## [0.10.8](https://github.com/VaclavObornik/mongodash/compare/v0.10.7...v0.10.8) (2021-08-27)
 
 
