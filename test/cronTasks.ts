@@ -1155,7 +1155,7 @@ describe('cronTasks %i', () => {
                 try {
                     await runCronTask(task1.taskId);
                 } catch (err) {
-                    error = err;
+                    error = err as Error;
                 }
             });
 
@@ -1248,7 +1248,7 @@ describe('cronTasks %i', () => {
                         await wait(0);
                         await mongodash2.runCronTask(taskId);
                     } catch (err) {
-                        error = err;
+                        error = err as Error;
                     }
                 });
 
