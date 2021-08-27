@@ -1,7 +1,7 @@
 'use strict';
 
 // import * as _debug from 'debug';
-import { Collection, Document, ObjectId } from 'mongodb';
+import { Collection, Document, MongoError, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
@@ -63,7 +63,7 @@ export async function withLock<T>(
             const doc = { lockId, [expirationKey]: new Date(now.getTime() + expireIn) };
             await collection.replaceOne(matcher, doc, { upsert: true });
         } catch (err) {
-            if ([11000, 11001].includes(err.code)) {
+            if ([11000, 11001].includes(<number>(err as MongoError).code)) {
                 throw new Error(lockAcquiredMessage);
             }
             await releaseLock(); // the lock could be possible acquired
@@ -95,7 +95,7 @@ export async function withLock<T>(
 
             // debug(`wait time ${waitTime} for ${n}`);
 
-            if (err.message === lockAcquiredMessage && nextTime <= ultimateAttemptStart) {
+            if ((err as Error).message === lockAcquiredMessage && nextTime <= ultimateAttemptStart) {
                 await new Promise((resolve) => setTimeout(resolve, waitTime));
             } else {
                 throw err;
@@ -113,7 +113,7 @@ export async function withLock<T>(
     try {
         value = await callback();
     } catch (error) {
-        err = error;
+        err = error as Error;
     }
 
     await cleanUp();
