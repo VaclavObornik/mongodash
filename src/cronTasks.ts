@@ -90,7 +90,7 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
             const parsedExpression = parseCronExpression(expression, state.cronExpressionParserOptions);
             return () => parsedExpression.next().toDate();
         } catch (err) {
-            throw new Error(`${invalidIntervalMessage} ${err.message}.`);
+            throw new Error(`${invalidIntervalMessage} ${(err as Error).message}.`);
         }
     }
 
@@ -233,7 +233,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
             return task.task();
         })();
     } catch (err) {
-        taskError = err;
+        taskError = err as Error;
     }
 
     try {
@@ -281,7 +281,7 @@ async function getWaitTimeByNextTask(): Promise<number> {
         const timeToNext = nextTask.runSince.getTime() - Date.now();
         return Math.min(Math.max(timeToNext, 0), noTaskWaitTime);
     } catch (error) {
-        _onError(error);
+        _onError(error as Error);
         return noTaskWaitTime;
     }
 }
@@ -306,9 +306,9 @@ function runATask(): void {
         } catch (error) {
             // debug(`Catch error ${error}`);
             if (enforcedTask) {
-                enforcedTask.reject(error);
+                enforcedTask.reject(error as Error);
             } else {
-                _onError(error);
+                _onError(error as Error);
             }
         } finally {
             const shouldTriggerNext = () => state.shouldRun || !!state.enforcedTasks.length;
