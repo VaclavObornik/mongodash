@@ -2,8 +2,12 @@
   "name": "mongodash",
   "version": "1.0.0",
   "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
-  "main": "dist/lib/index.js",
+  "main": "./dist/lib/index.js",
   "types": "dist/types/index.d.ts",
+  "exports": {
+      "import": "./dist/lib/index.js",
+      "default": "./dist/lib/index.js"
+  },
   "files": [
     "dist"
   ],
@@ -37,6 +41,7 @@
     "@commitlint/cli": "^13.1.0",
     "@semantic-release/changelog": "^5.0.1",
     "@semantic-release/git": "^9.0.0",
+    "@skypack/package-check": "^0.2.2",
     "@stryker-mutator/core": "^5.3.0",
     "@stryker-mutator/jest-runner": "^5.3.0",
     "@types/debug": "^4.1.7",
