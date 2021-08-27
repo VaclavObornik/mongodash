@@ -260,7 +260,7 @@ describe('cronTasks %i', () => {
 
         it('should store a task to database in a right form', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
             await cronTask(taskId, () => new Date('2050-01-01T00:00:00Z'), task);
             assert.deepStrictEqual(await getDocument(), {
                 _id: taskId,
@@ -710,14 +710,14 @@ describe('cronTasks %i', () => {
     describe('Interval - timing logic', () => {
         it('should work with function returning date', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
             await cronTask(taskId, async () => new Date('2050-01-01T00:00:00Z'), task);
             assert.deepStrictEqual((await getDocument()).runSince, new Date('2050-01-01T00:00:00Z'));
         });
 
         it('should work with function returning number', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
             const interval = 7000;
             const timeBefore = Date.now();
             await cronTask(taskId, async () => interval, task);
@@ -729,7 +729,7 @@ describe('cronTasks %i', () => {
 
         it('should work with function returning number', async () => {
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
             const interval = 7000;
             const timeBefore = Date.now();
             await cronTask(taskId, async () => '7s', task);
@@ -761,7 +761,7 @@ describe('cronTasks %i', () => {
             const expectedDate = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
             await cronTask(taskId, expression, task);
 
             assert.deepStrictEqual((await getDocument()).runSince, expectedDate);
@@ -794,7 +794,7 @@ describe('cronTasks %i', () => {
             const duration = 1000 * 60 * (60 + 5);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
 
             const minExpectedDate = new Date(Date.now() + duration);
             await cronTask(taskId, expression, task);
@@ -815,7 +815,7 @@ describe('cronTasks %i', () => {
             const duration = 1000 * 60 * (60 + 30);
 
             const { taskId, task, getDocument, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
 
             const minExpectedDate = new Date(Date.now() + duration);
             await cronTask(taskId, duration, task);
@@ -844,7 +844,7 @@ describe('cronTasks %i', () => {
                 documentDuringProcessing = await getDocument();
             });
 
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
 
             const scheduleError = new Error('Something bad happened');
             const intervalFunction = sandbox.spy(() => {
@@ -869,7 +869,7 @@ describe('cronTasks %i', () => {
 
         it('should be ok when returned date is in the past', async () => {
             const { taskId, task, findDocument } = getTestingTask();
-            assert.deepStrictEqual(await findDocument(), undefined);
+            assert.equal(await findDocument(), null);
 
             const registrationTime = new Date();
 
