@@ -1,3 +1,10 @@
+## [0.10.8](https://github.com/VaclavObornik/mongodash/compare/v0.10.7...v0.10.8) (2021-08-27)
+
+
+### Bug Fixes
+
+* typescript problems after tsc upgrade ([21262b2](https://github.com/VaclavObornik/mongodash/commit/21262b2ec1160914e8796d595c461beea828b58e))
+
 ## [0.10.7](https://github.com/VaclavObornik/mongodash/compare/v0.10.6...v0.10.7) (2021-07-31)
 
 
