@@ -12,7 +12,7 @@ export function getMongoClient(): MongoClient {
 
 type CommonOptions = { autoConnect?: boolean };
 type ReadyClientOptions = CommonOptions & { mongoClient: MongoClient };
-type UriOptions = CommonOptions & { uri: string; clientOptions: MongoClientOptions };
+type UriOptions = CommonOptions & { uri: string; clientOptions?: MongoClientOptions };
 export type InitOptions = ReadyClientOptions | UriOptions;
 
 export async function init(options: InitOptions): Promise<void> {
