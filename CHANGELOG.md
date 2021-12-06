@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/VaclavObornik/mongodash/compare/v1.0.1...v1.0.2) (2021-12-06)
+
+
+### Bug Fixes
+
+* type update update ([c56f973](https://github.com/VaclavObornik/mongodash/commit/c56f97325131b011aa7d0e7f1b95bf5ce3dbf527))
+
 ## [1.0.1](https://github.com/VaclavObornik/mongodash/compare/v1.0.0...v1.0.1) (2021-08-27)
 
 
