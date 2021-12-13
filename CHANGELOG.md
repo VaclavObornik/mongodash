@@ -1,3 +1,12 @@
+# [1.1.0](https://github.com/VaclavObornik/mongodash/compare/v1.0.2...v1.1.0) (2021-12-13)
+
+
+### Features
+
+* cron task registration can be called before monogdash.init ([181747d](https://github.com/VaclavObornik/mongodash/commit/181747ddd7a1dbba7671561bc3e49ae0eddb3ee0))
+* isLockAlreadyAcquiredError function introduced ([2741bff](https://github.com/VaclavObornik/mongodash/commit/2741bffbfcc7858175fbff8ea62ffb0f42af4a86))
+* WithLockOptions exported ([7a6443a](https://github.com/VaclavObornik/mongodash/commit/7a6443a568bffa60fff852bf1c072938bdf20481))
+
 ## [1.0.2](https://github.com/VaclavObornik/mongodash/compare/v1.0.1...v1.0.2) (2021-12-06)
 
 
