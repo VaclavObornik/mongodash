@@ -19,7 +19,7 @@ export type LockKey = string | number | ObjectId;
 
 export type LockCallback<T> = () => Promise<T>;
 
-export type LockerOptions = {
+export type WithLockOptions = {
     maxWaitForLock?: number;
     startingDelay?: number;
     expireIn?: number;
