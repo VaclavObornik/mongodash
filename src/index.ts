@@ -3,11 +3,12 @@ import { init as initGetCollection, InitOptions as GetCollectionInitOptions } fr
 import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } from './getMongoClient';
 import { OnError } from './OnError';
 import { init as withLockInit } from './withLock';
+import { resolver } from './initPromise';
 export { cronTask, Interval, runCronTask, scheduleCronTaskImmediately, startCronTasks, stopCronTasks, TaskFunction, TaskId } from './cronTasks';
 export { getCollection } from './getCollection';
 export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
-export { withLock } from './withLock';
+export { withLock, isLockAlreadyAcquiredError, WithLockOptions, LockAlreadyAcquiredError } from './withLock';
 export { withTransaction } from './withTransaction';
 
 let initCalled = false;
@@ -47,4 +48,6 @@ export async function init(options: InitOptions): Promise<void> {
         ...options,
         autoConnect: options.autoConnect ?? true,
     });
+
+    resolver.resolve();
 }
