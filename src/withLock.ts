@@ -19,7 +19,7 @@ export type LockKey = string | number | ObjectId;
 
 export type LockCallback<T> = () => Promise<T>;
 
-export type LockerOptions = {
+export type WithLockOptions = {
     maxWaitForLock?: number;
     startingDelay?: number;
     expireIn?: number;
@@ -40,10 +40,24 @@ async function getLockerCollection() {
     return collectionPromise;
 }
 
+export class LockAlreadyAcquiredError extends Error {
+    constructor(public readonly key: LockKey) {
+        super(lockAcquiredMessage);
+    }
+}
+
+export function isLockAlreadyAcquiredError(err: unknown, key?: LockKey): boolean {
+    const rightError = err instanceof LockAlreadyAcquiredError;
+    if (!rightError) {
+        return false;
+    }
+    return key ? err.key === key : true;
+}
+
 export async function withLock<T>(
     key: LockKey,
     callback: LockCallback<T>,
-    { maxWaitForLock = 3 * 1000, startingDelay = 50, expireIn = 15 * 1000 }: LockerOptions = {},
+    { maxWaitForLock = 3 * 1000, startingDelay = 50, expireIn = 15 * 1000 }: WithLockOptions = {},
 ): Promise<T> {
     const lockId = new ObjectId();
     const stringKey = `${key}`;
@@ -64,7 +78,7 @@ export async function withLock<T>(
             await collection.replaceOne(matcher, doc, { upsert: true });
         } catch (err) {
             if ([11000, 11001].includes(<number>(err as MongoError).code)) {
-                throw new Error(lockAcquiredMessage);
+                throw new LockAlreadyAcquiredError(key);
             }
             await releaseLock(); // the lock could be possible acquired
             throw err;
@@ -95,7 +109,7 @@ export async function withLock<T>(
 
             // debug(`wait time ${waitTime} for ${n}`);
 
-            if ((err as Error).message === lockAcquiredMessage && nextTime <= ultimateAttemptStart) {
+            if (isLockAlreadyAcquiredError(err, key) && nextTime <= ultimateAttemptStart) {
                 await new Promise((resolve) => setTimeout(resolve, waitTime));
             } else {
                 throw err;
