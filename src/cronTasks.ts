@@ -5,6 +5,7 @@ import parseDuration from 'parse-duration';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
+import { initPromise } from './initPromise';
 
 // const debug = _debug('mongodash:cronTasks');
 
@@ -290,6 +291,7 @@ function runATask(): void {
     // debug('runATask called');
     state.working = true;
     (async () => {
+        await initPromise;
         const enforcedTask = state.enforcedTasks.shift() || null; // there can be no enforced task
         let task: Task | null = null;
         const countOfTasks = state.tasks.size;
@@ -395,6 +397,8 @@ export async function scheduleCronTaskImmediately(taskId: TaskId): Promise<void>
 }
 
 export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFunction): Promise<void> {
+    await initPromise;
+
     if (state.tasks.has(taskId)) {
         throw new Error(`The taskId '${taskId}' is already used.`);
     }
