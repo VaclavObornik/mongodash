@@ -70,7 +70,7 @@ describe('withLock', () => {
     }, 7000);
 
     it.each([100, 500, 1000])('should throw if the lock cannot be acquired in a %i ms', async (time) => {
-        const { withLock } = instance.mongodash;
+        const { withLock, isLockAlreadyAcquiredError, LockAlreadyAcquiredError } = instance.mongodash;
         const key = `key-${time}`;
         const promise = withLock(key, async () => {
             await wait(time * 2);
@@ -78,12 +78,26 @@ describe('withLock', () => {
 
         const startingDelay = 50;
         const start = new Date();
-        await assert.rejects(() => withLock(key, noop, { maxWaitForLock: time, startingDelay }), /The lock is already acquired./);
+        let caughtError: any;
+        await assert.rejects(async () => {
+            try {
+                await withLock(key, noop, { maxWaitForLock: time, startingDelay });
+            } catch (err) {
+                caughtError = err;
+                throw err;
+            }
+        }, /The lock is already acquired./);
+
         const end = new Date();
         const realWait = end.getTime() - start.getTime();
         debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
         assert(realWait >= time - startingDelay, `The wait time was not long enough (${realWait}).`);
         assert(realWait <= time + startingDelay, `The wait time was too long (${realWait})`);
+
+        assert.strictEqual(caughtError instanceof LockAlreadyAcquiredError, true);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError), true);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError, key), true);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError, 'anotherKey'), false);
 
         await promise;
     });
@@ -103,15 +117,19 @@ describe('withLock', () => {
     });
 
     it('should propagate error and release the lock on failure', async () => {
-        const { withLock } = instance.mongodash;
+        const { withLock, LockAlreadyAcquiredError, isLockAlreadyAcquiredError } = instance.mongodash;
         const key = 3;
-        await assert.rejects(
-            () =>
-                withLock(key, async () => {
+        let caughtError: any;
+        await assert.rejects(async () => {
+            try {
+                await withLock(key, async () => {
                     throw new Error('Some error!!!');
-                }),
-            /Some error!!!/,
-        );
+                });
+            } catch (err) {
+                caughtError = err;
+                throw err;
+            }
+        }, /Some error!!!/);
 
         const start = new Date();
         await withLock(
@@ -122,6 +140,11 @@ describe('withLock', () => {
             },
             { maxWaitForLock: 5000, startDelay: 1000 },
         );
+
+        assert.strictEqual(caughtError instanceof LockAlreadyAcquiredError, false);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError), false);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError, key), false);
+        assert.strictEqual(isLockAlreadyAcquiredError(caughtError, 'anotherKey'), false);
     });
 
     it('should create expiration index on right field and use it in lock', async () => {

@@ -8,7 +8,7 @@ export { cronTask, Interval, runCronTask, scheduleCronTaskImmediately, startCron
 export { getCollection } from './getCollection';
 export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
-export { withLock, WithLockOptions } from './withLock';
+export { withLock, isLockAlreadyAcquiredError, WithLockOptions, LockAlreadyAcquiredError } from './withLock';
 export { withTransaction } from './withTransaction';
 
 let initCalled = false;
