@@ -14,7 +14,7 @@ export function createContinuousLock(
 ): StopContinuousLock {
     let taskInProgress = true;
     let prolongLockTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    let lastProlongPromise: Promise<unknown> = Promise.resolve(); // all errors has to be suppressed
+    let lastProlongPromise: Promise<unknown> = Promise.resolve(); // all errors have to be suppressed
 
     function scheduleLockProlong() {
         prolongLockTimeoutId = setTimeout(() => {
