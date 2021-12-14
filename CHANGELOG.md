@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/VaclavObornik/mongodash/compare/v1.1.0...v1.1.1) (2021-12-14)
+
+
+### Bug Fixes
+
+* bump cron-parser from 3.5.0 to 4.2.0 ([0bb7e37](https://github.com/VaclavObornik/mongodash/commit/0bb7e37042d61c39e2d1287b9c4d6543b3f3827b))
+
 # [1.1.0](https://github.com/VaclavObornik/mongodash/compare/v1.0.2...v1.1.0) (2021-12-13)
 
 
