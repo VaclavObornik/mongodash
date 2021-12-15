@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/VaclavObornik/mongodash/compare/v1.2.0...v1.3.0) (2021-12-15)
+
+
+### Features
+
+* added duration to CRON info ([5d5ff8e](https://github.com/VaclavObornik/mongodash/commit/5d5ff8e4a625002eaf3d6ba55b63051999d12381))
+
 # [1.2.0](https://github.com/VaclavObornik/mongodash/compare/v1.1.1...v1.2.0) (2021-12-15)
 
 
