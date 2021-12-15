@@ -6,6 +6,12 @@ import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
 import { initPromise } from './initPromise';
+import { OnInfo } from './OnInfo';
+
+export const CODE_CRON_TASK_STARTED = 'cronTaskStarted';
+export const CODE_CRON_TASK_FINISHED = 'cronTaskFinished';
+export const CODE_CRON_TASK_SCHEDULED = 'cronTaskScheduled';
+export const CODE_CRON_TASK_FAILED = 'cronTaskFailed';
 
 // const debug = _debug('mongodash:cronTasks');
 
@@ -16,7 +22,7 @@ export type IntervalFunction = () => StaticInterval | Promise<StaticInterval>;
 export type Interval = ScalarInterval | IntervalFunction;
 export type TaskId = string;
 
-type Task = { taskId: TaskId; task: TaskFunction; interval: IntervalFunction };
+type Task = { taskId: TaskId; task: TaskFunction; intervalFunction: IntervalFunction };
 
 type RunLogEntry = {
     startedAt: Date;
@@ -68,6 +74,7 @@ const state = {
 };
 
 let _onError: OnError;
+let _onInfo: OnInfo;
 
 function dateInMillis(milliseconds: number) {
     return new Date(Date.now() + milliseconds);
@@ -103,8 +110,8 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
     return () => dateInMillis(duration);
 }
 
-async function getNextRunDate(interval: IntervalFunction): Promise<Date> {
-    const maybeDate: StaticInterval = await interval();
+async function getNextRunDate(intervalFunction: IntervalFunction): Promise<Date> {
+    const maybeDate: StaticInterval = await intervalFunction();
     if (maybeDate instanceof Date) {
         return maybeDate;
     }
@@ -225,22 +232,28 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
 async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     // debug(`processing task ${task.taskId}`);
     let taskError: Error | null = null;
+    let nextRunDate: Date;
+    let nextRunScheduled = false;
 
     // todo solve the "any"
     const stopContinuousLock = createContinuousLock(<any>state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
     try {
         await (function mongoDashRunTaskNotCyclic() {
+            _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
             return task.task();
         })();
+        _onInfo({ message: `Cron task '${task.taskId}' finished.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED });
     } catch (err) {
+        const reason = err instanceof Error ? err.message : `${err}`;
+        _onInfo({ message: `Cron task '${task.taskId}' failed.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason });
         taskError = err as Error;
     }
 
     try {
         await stopContinuousLock(); // to avoid possibility of lock after the following document update
 
-        const nextRunDate = await getNextRunDate(task.interval);
+        nextRunDate = await getNextRunDate(task.intervalFunction);
         // debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()}ms`);
 
         await state.collection.updateOne(
@@ -254,6 +267,8 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
                 },
             },
         );
+
+        nextRunScheduled = true;
     } finally {
         if (enforcedTask) {
             if (taskError) {
@@ -263,6 +278,16 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
             }
         } else if (taskError) {
             _onError(taskError);
+        }
+
+        // we want to inform about the scheduling after the
+        if (nextRunScheduled) {
+            _onInfo({
+                message: `Cron task '${task.taskId}' scheduled to ${nextRunDate!.toISOString()}.`,
+                taskId: task.taskId,
+                code: CODE_CRON_TASK_SCHEDULED,
+                nextRunDate: new Date(nextRunDate!.toISOString()),
+            });
         }
     }
 }
@@ -347,13 +372,15 @@ export type InitOptions = {
     runCronTasks: boolean;
     cronExpressionParserOptions: CronExpressionParserOptions;
     onError: OnError;
+    onInfo: OnInfo;
 };
-export function init({ runCronTasks, cronExpressionParserOptions, onError }: InitOptions): void {
+export function init({ runCronTasks, cronExpressionParserOptions, onError, onInfo }: InitOptions): void {
     if (cronExpressionParserOptions.endDate) {
         throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
     }
     state.shouldRun = runCronTasks;
     _onError = onError;
+    _onInfo = onInfo;
     state.cronExpressionParserOptions = cronExpressionParserOptions;
 }
 
@@ -412,7 +439,7 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
     state.tasks.set(taskId, {
         taskId,
         task,
-        interval: intervalFunction,
+        intervalFunction,
     });
     // debug(`task ${taskId} has been registered`);
 

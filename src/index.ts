@@ -1,10 +1,24 @@
 import { init as initCronTasks, InitOptions as CronTasksInitOptions } from './cronTasks';
 import { init as initGetCollection, InitOptions as GetCollectionInitOptions } from './getCollection';
 import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } from './getMongoClient';
-import { OnError } from './OnError';
+import { defaultOnError, OnError, secureOnError } from './OnError';
+import { defaultOnInfo, OnInfo, secureOnInfo } from './OnInfo';
 import { init as withLockInit } from './withLock';
 import { resolver } from './initPromise';
-export { cronTask, Interval, runCronTask, scheduleCronTaskImmediately, startCronTasks, stopCronTasks, TaskFunction, TaskId } from './cronTasks';
+export {
+    cronTask,
+    Interval,
+    runCronTask,
+    scheduleCronTaskImmediately,
+    startCronTasks,
+    stopCronTasks,
+    TaskFunction,
+    TaskId,
+    CODE_CRON_TASK_STARTED,
+    CODE_CRON_TASK_FINISHED,
+    CODE_CRON_TASK_SCHEDULED,
+    CODE_CRON_TASK_FAILED,
+} from './cronTasks';
 export { getCollection } from './getCollection';
 export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
@@ -13,11 +27,12 @@ export { withTransaction } from './withTransaction';
 
 let initCalled = false;
 
-export type InitOptions = GetMongoClientInitOptions & Partial<CronTasksInitOptions> & Partial<GetCollectionInitOptions>;
-
-const defaultOnError = (error: Error) => {
-    console.error(error);
+type PackageOptions = {
+    onError?: OnError;
+    onInfo?: OnInfo;
 };
+
+export type InitOptions = PackageOptions & GetMongoClientInitOptions & Partial<CronTasksInitOptions> & Partial<GetCollectionInitOptions>;
 
 export async function init(options: InitOptions): Promise<void> {
     if (initCalled) {
@@ -25,14 +40,8 @@ export async function init(options: InitOptions): Promise<void> {
     }
     initCalled = true;
 
-    const _onError = options.onError ?? defaultOnError;
-    const onError: OnError = (error) => {
-        try {
-            _onError(error);
-        } catch (onErrorFailure) {
-            // intentionally suppress
-        }
-    };
+    const onError = options.onError ? secureOnError(options.onError) : defaultOnError;
+    const onInfo = options.onInfo ? secureOnInfo(options.onInfo) : defaultOnInfo;
 
     initGetCollection({ collectionFactory: options.collectionFactory ?? null });
 
@@ -42,6 +51,7 @@ export async function init(options: InitOptions): Promise<void> {
         runCronTasks: options.runCronTasks ?? true,
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
         onError,
+        onInfo,
     });
 
     await initMongoClient({
