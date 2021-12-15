@@ -236,7 +236,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     let nextRunScheduled = false;
 
     // todo solve the "any"
-    const stopContinuousLock = createContinuousLock(<any>state.collection, task.taskId, 'lockedTill', lockTime, _onError);
+    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
     try {
         await (function mongoDashRunTaskNotCyclic() {
