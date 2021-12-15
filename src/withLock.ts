@@ -1,7 +1,7 @@
 'use strict';
 
 // import * as _debug from 'debug';
-import { Collection, Document, MongoError, ObjectId } from 'mongodb';
+import { Collection, MongoError, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
@@ -19,6 +19,12 @@ export type LockKey = string | number | ObjectId;
 
 export type LockCallback<T> = () => Promise<T>;
 
+interface LockDocument {
+    _id: string;
+    expiresAt: Date;
+    lockId: ObjectId;
+}
+
 export type WithLockOptions = {
     maxWaitForLock?: number;
     startingDelay?: number;
@@ -28,11 +34,11 @@ export type WithLockOptions = {
 const lockAcquiredMessage = 'The lock is already acquired.';
 const expirationKey = 'expiresAt';
 
-let collectionPromise: Promise<Collection<Document>>;
+let collectionPromise: Promise<Collection<LockDocument>>;
 async function getLockerCollection() {
     if (!collectionPromise) {
         collectionPromise = (async () => {
-            const collection = getCollection<Document>('locks');
+            const collection = getCollection<LockDocument>('locks');
             await collection.createIndex({ [expirationKey]: 1 }, { name: 'expiresAtIndex', expireAfterSeconds: 0 });
             return collection;
         })();
@@ -117,8 +123,7 @@ export async function withLock<T>(
         }
     }
 
-    // todo solve the "any"
-    const stopContinuousLock = createContinuousLock(<any>collection, stringKey, expirationKey, expireIn, onError);
+    const stopContinuousLock = createContinuousLock(collection, stringKey, expirationKey, expireIn, onError);
 
     const cleanUp = () => Promise.all([stopContinuousLock(), releaseLock()]);
 
