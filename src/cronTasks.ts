@@ -238,15 +238,18 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     // todo solve the "any"
     const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
+    const start = new Date();
     try {
         await (function mongoDashRunTaskNotCyclic() {
             _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
             return task.task();
         })();
-        _onInfo({ message: `Cron task '${task.taskId}' finished.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED });
+        const duration = Date.now() - start.getTime();
+        _onInfo({ message: `Cron task '${task.taskId}' finished in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
     } catch (err) {
+        const duration = Date.now() - start.getTime();
         const reason = err instanceof Error ? err.message : `${err}`;
-        _onInfo({ message: `Cron task '${task.taskId}' failed.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason });
+        _onInfo({ message: `Cron task '${task.taskId}' failed in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason, duration });
         taskError = err as Error;
     }
 
