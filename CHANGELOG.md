@@ -1,3 +1,11 @@
+# [1.2.0](https://github.com/VaclavObornik/mongodash/compare/v1.1.1...v1.2.0) (2021-12-15)
+
+
+### Features
+
+* added onInfo option for convenient logging ([5f8c45a](https://github.com/VaclavObornik/mongodash/commit/5f8c45afcfbabb824310573d99231d42480a4ff5))
+* typescript update ([37b466d](https://github.com/VaclavObornik/mongodash/commit/37b466db1f90d88d9f6f5aa40a616a26fb51a2ee))
+
 ## [1.1.1](https://github.com/VaclavObornik/mongodash/compare/v1.1.0...v1.1.1) (2021-12-14)
 
 
