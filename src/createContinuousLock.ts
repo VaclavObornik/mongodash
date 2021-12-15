@@ -3,10 +3,8 @@ import { OnError } from './OnError';
 
 type StopContinuousLock = () => Promise<void>;
 
-type ObjectWithId = { _id: unknown };
-
-export function createContinuousLock(
-    collection: Collection<ObjectWithId>,
+export function createContinuousLock<DocumentType extends { _id: string }>(
+    collection: Collection<DocumentType>,
     documentId: string,
     lockProperty: string,
     lockTime: number,
@@ -22,7 +20,7 @@ export function createContinuousLock(
             lastProlongPromise = (async () => {
                 try {
                     // debug('performing lock prolong');
-                    await collection.updateOne({ _id: documentId }, { $set: { lockedTill: new Date(Date.now() + lockTime) } });
+                    await collection.updateOne({ _id: documentId as any }, { $set: { [lockProperty]: new Date(Date.now() + lockTime) } } as any);
                 } catch (err) {
                     // debug('Error during task prolong', err);
                     onError(err as Error);
