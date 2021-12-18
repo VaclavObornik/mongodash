@@ -251,6 +251,20 @@ describe('cronTasks %i', () => {
             assert.strictEqual(collectionCalls.cronTasks - 1, 1, 'The getCollection should be called only once by cronTasks');
         });
 
+        it('should run be possible to register tasks before the mongodash init', async () => {
+            const mongodash = getNewInstance();
+            const { taskId, task } = getTestingTask();
+            const initPromise = mongodash.mongodash.cronTask(taskId, getRunOnceInterval(), task);
+
+            await triggerNextRound();
+            assert.strictEqual(task.callCount, 0);
+
+            await mongodash.initInstance();
+            await initPromise;
+            await triggerNextRound();
+            assert.strictEqual(task.callCount, 1);
+        });
+
         it.each(times(3, String))('should run a task automatically [%i]', async () => {
             const { taskId, task } = getTestingTask();
             await cronTask(taskId, getRunOnceInterval(), task);
