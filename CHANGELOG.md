@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/VaclavObornik/mongodash/compare/v1.3.0...v1.3.1) (2022-01-16)
+
+
+### Bug Fixes
+
+* bump debug from 4.3.2 to 4.3.3 ([beef1c2](https://github.com/VaclavObornik/mongodash/commit/beef1c201de003f8e2a399ba98a82fa40cfa6c3b))
+
 # [1.3.0](https://github.com/VaclavObornik/mongodash/compare/v1.2.0...v1.3.0) (2021-12-15)
 
 
