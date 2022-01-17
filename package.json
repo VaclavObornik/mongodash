@@ -56,7 +56,7 @@
     "@typescript-eslint/parser": "^4.29.3",
     "coveralls": "^3.1.1",
     "deepdash": "^5.3.9",
-    "eslint": "^7.32.0",
+    "eslint": "^8.7.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-no-only-tests": "^2.6.0",
     "eslint-plugin-prettier": "^4.0.0",
