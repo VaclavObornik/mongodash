@@ -235,7 +235,6 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     let nextRunDate: Date;
     let nextRunScheduled = false;
 
-    // todo solve the "any"
     const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
     const start = new Date();
