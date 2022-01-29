@@ -2,11 +2,12 @@ import * as assert from 'assert';
 import * as _debug from 'debug';
 // @ts-ignore
 import { paths } from 'deepdash/standalone';
-import { isEmpty, isEqual, matches, pick, times, uniqueId } from 'lodash';
+import { isEmpty, isEqual, map, matches, pick, times, uniq, uniqueId } from 'lodash';
 import { Collection, UpdateFilter } from 'mongodb';
 import * as sinon from 'sinon';
 import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
+import * as correlator from 'correlation-id';
 
 const debug = _debug('mongodash:cronTests');
 
@@ -1326,6 +1327,118 @@ describe('cronTasks %i', () => {
         it('should throw if the taskId is not registered in the database', async () => {
             const { taskId } = getTestingTask();
             await assert.rejects(() => scheduleCronTaskImmediately(taskId), new RegExp(`No task with id "${taskId}" is registered.`));
+        });
+    });
+
+    describe('onInfo and cronTaskCaller', () => {
+        it('should be possible to send a wrapper method to save correlationId', async () => {
+            const instance = getNewInstance();
+            const numberOfCalls = 3;
+
+            assert.strictEqual(correlator.getId(), undefined);
+
+            const callLog: unknown[] = [];
+            const onInfo = sinon.spy((onInfoArgs) => {
+                callLog.push({ onInfo: onInfoArgs, correlationId: correlator.getId() });
+            });
+
+            await instance.initInstance({
+                cronTaskCaller: correlator.withId,
+                onInfo,
+            });
+
+            const task = getTestingTask(() => {
+                callLog.push({
+                    taskCalled: true,
+                    correlationId: correlator.getId(),
+                });
+            });
+
+            // perform the task
+            const dates = times(numberOfCalls, (i) => new Date(Date.now() + 1000 * i));
+            await instance.mongodash.cronTask(task.taskId, scheduledInterval(...dates), task.task);
+            while (task.callTimes.length < dates.length) {
+                await triggerNextRound();
+            }
+
+            const correlationIds = uniq(map(callLog, 'correlationId'));
+            assert.strictEqual(correlationIds.length, numberOfCalls);
+
+            const isoDate = /[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z/;
+
+            expect(callLog).toMatchObject([
+                {
+                    onInfo: { message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: 'cronTaskStarted' },
+                    correlationId: correlationIds[0],
+                },
+                { taskCalled: true, correlationId: correlationIds[0] },
+                {
+                    onInfo: {
+                        message: new RegExp(`Cron task '${task.taskId}' finished in [0-9]+ms./, `),
+                        taskId: task.taskId,
+                        code: 'cronTaskFinished',
+                        duration: expect.any(Number),
+                    },
+                    correlationId: correlationIds[0],
+                },
+                {
+                    onInfo: {
+                        message: expect.stringMatching(new RegExp(`Cron task '${task.taskId}' scheduled to ${isoDate.source}`)),
+                        taskId: task.taskId,
+                        code: 'cronTaskScheduled',
+                        nextRunDate: dates[1],
+                    },
+                    correlationId: correlationIds[0],
+                },
+                {
+                    onInfo: { message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: 'cronTaskStarted' },
+                    correlationId: correlationIds[1],
+                },
+                { taskCalled: true, correlationId: correlationIds[1] },
+                {
+                    onInfo: {
+                        message: new RegExp(`Cron task '${task.taskId}' finished in [0-9]+ms.`),
+                        taskId: task.taskId,
+                        code: 'cronTaskFinished',
+                        duration: 0,
+                    },
+                    correlationId: correlationIds[1],
+                },
+                {
+                    onInfo: {
+                        message: expect.stringMatching(new RegExp(`Cron task '${task.taskId}' scheduled to ${isoDate.source}`)),
+                        taskId: task.taskId,
+                        code: 'cronTaskScheduled',
+                        nextRunDate: dates[2],
+                    },
+                    correlationId: correlationIds[1],
+                },
+                {
+                    onInfo: { message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: 'cronTaskStarted' },
+                    correlationId: correlationIds[2],
+                },
+                { taskCalled: true, correlationId: correlationIds[2] },
+                {
+                    onInfo: {
+                        message: new RegExp(`Cron task '${task.taskId}' finished in [0-9]+ms.`),
+                        taskId: task.taskId,
+                        code: 'cronTaskFinished',
+                        duration: 0,
+                    },
+                    correlationId: correlationIds[2],
+                },
+                {
+                    onInfo: {
+                        message: expect.stringMatching(new RegExp(`Cron task '${task.taskId}' scheduled to ${isoDate.source}`)),
+                        taskId: task.taskId,
+                        code: 'cronTaskScheduled',
+                        nextRunDate: distantFutureInterval(),
+                    },
+                    correlationId: correlationIds[2],
+                },
+            ]);
+
+            debug('correlationIds', correlationIds);
         });
     });
 });

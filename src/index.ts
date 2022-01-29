@@ -52,6 +52,7 @@ export async function init(options: InitOptions): Promise<void> {
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
         onError,
         onInfo,
+        cronTaskCaller: options.cronTaskCaller ?? ((task) => task()),
     });
 
     await initMongoClient({
