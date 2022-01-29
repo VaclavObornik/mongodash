@@ -6,7 +6,7 @@ type StopContinuousLock = () => Promise<void>;
 export function createContinuousLock<DocumentType extends { _id: string }>(
     collection: Collection<DocumentType>,
     documentId: string,
-    lockProperty: string,
+    lockProperty: keyof DocumentType,
     lockTime: number,
     onError: OnError,
 ): StopContinuousLock {
