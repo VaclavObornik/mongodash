@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-latest]
         node-version: [ 16.x, 14.x, 12.x ]
         mongodb-version: [ 5, 4.4, 3.6 ]
-        mongodb-driver-version: [ 4.1 ]
+        mongodb-driver-version: [ 4.1, latest ]
     env:
       MONGODB_VERSION: ${{ matrix.mongodb-version }}
     steps:
