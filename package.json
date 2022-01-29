@@ -58,7 +58,7 @@
     "correlation-id": "^4.0.0",
     "coveralls": "^3.1.1",
     "deepdash": "^5.3.9",
-    "eslint": "^7.32.0",
+    "eslint": "^8.8.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-no-only-tests": "^2.6.0",
     "eslint-plugin-prettier": "^4.0.0",
