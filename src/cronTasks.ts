@@ -73,6 +73,11 @@ const state = {
     cronExpressionParserOptions: <CronExpressionParserOptions>{},
 };
 
+export interface CronTaskCaller {
+    <T>(task: () => Promise<T>): Promise<T> | T;
+}
+
+let _taskCaller: CronTaskCaller;
 let _onError: OnError;
 let _onInfo: OnInfo;
 
@@ -230,67 +235,75 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
 }
 
 async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
-    // debug(`processing task ${task.taskId}`);
-    let taskError: Error | null = null;
-    let nextRunDate: Date;
-    let nextRunScheduled = false;
-
     const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
 
-    const start = new Date();
-    try {
-        await (function mongoDashRunTaskNotCyclic() {
-            _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
-            return task.task();
-        })();
-        const duration = Date.now() - start.getTime();
-        _onInfo({ message: `Cron task '${task.taskId}' finished in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
-    } catch (err) {
-        const duration = Date.now() - start.getTime();
-        const reason = err instanceof Error ? err.message : `${err}`;
-        _onInfo({ message: `Cron task '${task.taskId}' failed in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason, duration });
-        taskError = err as Error;
-    }
+    const processTheTask = async () => {
+        // debug(`processing task ${task.taskId}`);
+        let taskError: Error | null = null;
+        let nextRunDate: Date;
+        let nextRunScheduled = false;
 
-    try {
-        await stopContinuousLock(); // to avoid possibility of lock after the following document update
+        const start = new Date();
+        try {
+            await (function mongoDashRunTaskNotCyclic() {
+                _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
+                return task.task();
+            })();
+            const duration = Date.now() - start.getTime();
+            _onInfo({ message: `Cron task '${task.taskId}' finished in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
+        } catch (err) {
+            const duration = Date.now() - start.getTime();
+            const reason = err instanceof Error ? err.message : `${err}`;
+            _onInfo({ message: `Cron task '${task.taskId}' failed in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason, duration });
+            taskError = err as Error;
+        }
 
-        nextRunDate = await getNextRunDate(task.intervalFunction);
-        // debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()}ms`);
+        try {
+            await stopContinuousLock(); // to avoid possibility of lock after the following document update
 
-        await state.collection.updateOne(
-            { _id: task.taskId },
-            {
-                $set: {
-                    runSince: nextRunDate,
-                    lockedTill: null,
-                    'runLog.0.error': taskError ? `${taskError}` : null,
-                    'runLog.0.finishedAt': new Date(),
+            nextRunDate = await getNextRunDate(task.intervalFunction);
+            // debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()}ms`);
+
+            await state.collection.updateOne(
+                { _id: task.taskId },
+                {
+                    $set: {
+                        runSince: nextRunDate,
+                        lockedTill: null,
+                        'runLog.0.error': taskError ? `${taskError}` : null,
+                        'runLog.0.finishedAt': new Date(),
+                    },
                 },
-            },
-        );
+            );
 
-        nextRunScheduled = true;
-    } finally {
-        if (enforcedTask) {
-            if (taskError) {
-                enforcedTask.reject(taskError);
-            } else {
-                enforcedTask.resolve();
+            nextRunScheduled = true;
+        } finally {
+            if (enforcedTask) {
+                if (taskError) {
+                    enforcedTask.reject(taskError);
+                } else {
+                    enforcedTask.resolve();
+                }
+            } else if (taskError) {
+                _onError(taskError);
             }
-        } else if (taskError) {
-            _onError(taskError);
-        }
 
-        // we want to inform about the scheduling after the
-        if (nextRunScheduled) {
-            _onInfo({
-                message: `Cron task '${task.taskId}' scheduled to ${nextRunDate!.toISOString()}.`,
-                taskId: task.taskId,
-                code: CODE_CRON_TASK_SCHEDULED,
-                nextRunDate: new Date(nextRunDate!.toISOString()),
-            });
+            // we want to inform about the scheduling after the
+            if (nextRunScheduled) {
+                _onInfo({
+                    message: `Cron task '${task.taskId}' scheduled to ${nextRunDate!.toISOString()}.`,
+                    taskId: task.taskId,
+                    code: CODE_CRON_TASK_SCHEDULED,
+                    nextRunDate: new Date(nextRunDate!.toISOString()),
+                });
+            }
         }
+    };
+
+    try {
+        await _taskCaller(processTheTask);
+    } catch (err) {
+        _onError(err as Error);
     }
 }
 
@@ -375,14 +388,17 @@ export type InitOptions = {
     cronExpressionParserOptions: CronExpressionParserOptions;
     onError: OnError;
     onInfo: OnInfo;
+    cronTaskCaller: CronTaskCaller;
 };
-export function init({ runCronTasks, cronExpressionParserOptions, onError, onInfo }: InitOptions): void {
+
+export function init({ runCronTasks, cronExpressionParserOptions, onError, onInfo, cronTaskCaller }: InitOptions): void {
     if (cronExpressionParserOptions.endDate) {
         throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
     }
     state.shouldRun = runCronTasks;
     _onError = onError;
     _onInfo = onInfo;
+    _taskCaller = cronTaskCaller;
     state.cronExpressionParserOptions = cronExpressionParserOptions;
 }
 
