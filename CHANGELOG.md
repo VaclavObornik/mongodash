@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/VaclavObornik/mongodash/compare/v1.3.1...v1.4.0) (2022-01-29)
+
+
+### Features
+
+* **cronTask:** support of cronTaskCaller option to allow usage like correlationId ([a67226c](https://github.com/VaclavObornik/mongodash/commit/a67226cd20edb778baf5c3cf0b19f22110a8f811))
+
 ## [1.3.1](https://github.com/VaclavObornik/mongodash/compare/v1.3.0...v1.3.1) (2022-01-16)
 
 
