@@ -4,7 +4,7 @@ import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } fro
 import { defaultOnError, OnError, secureOnError } from './OnError';
 import { defaultOnInfo, OnInfo, secureOnInfo } from './OnInfo';
 import { init as withLockInit } from './withLock';
-import { resolver } from './initPromise';
+import { resolveInitPromise } from './initPromise';
 export {
     cronTask,
     Interval,
@@ -52,6 +52,7 @@ export async function init(options: InitOptions): Promise<void> {
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
         onError,
         onInfo,
+        cronTaskCaller: options.cronTaskCaller ?? ((task) => task()),
     });
 
     await initMongoClient({
@@ -59,5 +60,5 @@ export async function init(options: InitOptions): Promise<void> {
         autoConnect: options.autoConnect ?? true,
     });
 
-    resolver.resolve();
+    resolveInitPromise();
 }
