@@ -83,4 +83,19 @@ describe('withTransaction', () => {
         assert(abortTransaction!.calledBefore(endSession!));
         assert.strictEqual(await collection.countDocuments(), 0);
     });
+
+    describe('Alaa', function () {
+        it('should work', () => {
+            console.log('bbb');
+        });
+        it('should not work', () => {
+            console.log('aaa');
+        });
+        let counter = 0;
+        afterEach(function () {
+            if (++counter > 1) {
+                throw new Error('sdfsdffs');
+            }
+        });
+    });
 });
