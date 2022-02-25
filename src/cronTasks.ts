@@ -303,6 +303,9 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     try {
         await _taskCaller(processTheTask);
     } catch (err) {
+        // todo revise why we need to do this
+        // this should fix situations when the _taskCaller has a problem
+        await stopContinuousLock();
         _onError(err as Error);
     }
 }
