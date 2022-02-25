@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/VaclavObornik/mongodash/compare/v1.4.0...v1.4.1) (2022-02-25)
+
+
+### Bug Fixes
+
+* **cronTask:** lower chance to stuck infinite task ([2ad6a1d](https://github.com/VaclavObornik/mongodash/commit/2ad6a1d774d76a225e68f0475d924059fa60c122))
+
 # [1.4.0](https://github.com/VaclavObornik/mongodash/compare/v1.3.1...v1.4.0) (2022-01-29)
 
 
