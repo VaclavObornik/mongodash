@@ -6,12 +6,27 @@ import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
 import { initPromise } from './initPromise';
-import { OnInfo } from './OnInfo';
+import { Info, OnInfo } from './OnInfo';
 
 export const CODE_CRON_TASK_STARTED = 'cronTaskStarted';
 export const CODE_CRON_TASK_FINISHED = 'cronTaskFinished';
 export const CODE_CRON_TASK_SCHEDULED = 'cronTaskScheduled';
 export const CODE_CRON_TASK_FAILED = 'cronTaskFailed';
+
+export interface CronTaskResultInfo extends Info {
+    code: typeof CODE_CRON_TASK_FINISHED | typeof CODE_CRON_TASK_FAILED;
+    taskId: TaskId;
+    duration: number;
+}
+
+export interface CronTaskFinishedInfo extends CronTaskResultInfo {
+    code: typeof CODE_CRON_TASK_FINISHED;
+}
+
+export interface CronTaskFailedInfo extends CronTaskResultInfo {
+    code: typeof CODE_CRON_TASK_FAILED;
+    reason: string;
+}
 
 // const debug = _debug('mongodash:cronTasks');
 
@@ -162,9 +177,13 @@ function getUnlockedFilter() {
     return { $or: [{ lockedTill: null }, { lockedTill: { $lt: new Date() } }] };
 }
 
+function getRegisteredTasksFilter() {
+    return { _id: { $in: Array.from(state.tasks.keys()) } };
+}
+
 function getTasksToProcessFilter() {
     return {
-        $and: [{ _id: { $in: Array.from(state.tasks.keys()) } }, getUnlockedFilter()],
+        $and: [getRegisteredTasksFilter(), getUnlockedFilter()],
     };
 }
 
@@ -469,4 +488,27 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
     if (state.shouldRun) {
         ensureStarted();
     }
+}
+
+export async function getTaskDatabaseInfo(maxTimeMS: number): Promise<
+    {
+        taskId: TaskId;
+        shouldRunAfterTime: number;
+    }[]
+> {
+    const tasks = await state.collection.find(getRegisteredTasksFilter(), { maxTimeMS }).toArray();
+    return tasks.map((task) => {
+        const isLocked = task.lockedTill !== null && task.lockedTill > new Date();
+        let shouldRunAfterTime: number | null = task.runSince.getTime() - Date.now();
+        if (isLocked) {
+            shouldRunAfterTime = 0;
+        } else if (task.runImmediately) {
+            shouldRunAfterTime = 0;
+        }
+
+        return {
+            taskId: task._id,
+            shouldRunAfterTime,
+        };
+    });
 }

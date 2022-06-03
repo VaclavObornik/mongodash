@@ -1,15 +1,28 @@
-export type OnInfo = (info: { message: string; code: string } & Record<string, string | number | Date>) => void;
+export interface Info extends Record<string, string | number | Date> {
+    message: string;
+    code: string;
+}
 
-export const defaultOnInfo: OnInfo = (info) => {
-    console.log(info.message);
-};
+export interface OnInfo {
+    (info: Info): void;
+}
 
-export function secureOnInfo(onInfo: OnInfo): OnInfo {
-    return (info) => {
+const listeners: Array<OnInfo> = [];
+
+export function addOnInfoListener(listener: OnInfo) {
+    listeners.push(listener);
+}
+
+export function onInfo(info: Info): void {
+    for (const listener of listeners) {
         try {
-            onInfo(info);
+            listener(info);
         } catch (onErrorFailure) {
             // intentionally suppress
         }
-    };
+    }
+}
+
+export function defaultOnInfoListener(info: Info) {
+    console.log(info.message);
 }
