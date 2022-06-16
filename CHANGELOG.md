@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/VaclavObornik/mongodash/compare/v1.4.1...v1.4.2) (2022-06-16)
+
+
+### Bug Fixes
+
+* bump minimist from 1.2.5 to 1.2.6 ([6d01a40](https://github.com/VaclavObornik/mongodash/commit/6d01a40cf96d6170e77d3461835c4ffd852fe466))
+
 ## [1.4.1](https://github.com/VaclavObornik/mongodash/compare/v1.4.0...v1.4.1) (2022-02-25)
 
 
