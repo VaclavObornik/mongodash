@@ -77,7 +77,12 @@ export interface CronTaskCaller {
     <T>(task: () => Promise<T>): Promise<T> | T;
 }
 
+export interface CronTaskFilter {
+    ({ taskId }: { taskId: TaskId }): boolean;
+}
+
 let _taskCaller: CronTaskCaller;
+let _taskFilter: CronTaskFilter;
 let _onError: OnError;
 let _onInfo: OnInfo;
 
@@ -164,7 +169,7 @@ function getUnlockedFilter() {
 
 function getTasksToProcessFilter() {
     return {
-        $and: [{ _id: { $in: Array.from(state.tasks.keys()) } }, getUnlockedFilter()],
+        $and: [{ _id: { $in: Array.from(state.tasks.keys()).filter((taskId) => _taskFilter({ taskId })) } }, getUnlockedFilter()],
     };
 }
 
@@ -392,9 +397,10 @@ export type InitOptions = {
     onError: OnError;
     onInfo: OnInfo;
     cronTaskCaller: CronTaskCaller;
+    cronTaskFilter: CronTaskFilter;
 };
 
-export function init({ runCronTasks, cronExpressionParserOptions, onError, onInfo, cronTaskCaller }: InitOptions): void {
+export function init({ runCronTasks, cronTaskFilter, cronExpressionParserOptions, onError, onInfo, cronTaskCaller }: InitOptions): void {
     if (cronExpressionParserOptions.endDate) {
         throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
     }
@@ -402,6 +408,7 @@ export function init({ runCronTasks, cronExpressionParserOptions, onError, onInf
     _onError = onError;
     _onInfo = onInfo;
     _taskCaller = cronTaskCaller;
+    _taskFilter = cronTaskFilter;
     state.cronExpressionParserOptions = cronExpressionParserOptions;
 }
 
