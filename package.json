@@ -1,6 +1,6 @@
 {
   "name": "mongodash",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
   "main": "./dist/lib/index.js",
   "types": "dist/types/index.d.ts",
