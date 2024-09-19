@@ -462,7 +462,8 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
     const nextRun = await getNextRunDate(intervalFunction);
 
     const document = new TaskDocument(taskId, nextRun);
-    await state.collection.updateOne({ _id: document._id }, { $setOnInsert: document }, { upsert: true });
+    const { _id, ...documentWithoutId } = document;
+    await state.collection.updateOne({ _id: document._id }, { $setOnInsert: documentWithoutId }, { upsert: true });
 
     state.tasks.set(taskId, {
         taskId,
