@@ -208,6 +208,7 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
                 'runLog.0.finishedAt': 1, // prefer tasks waiting longer
             },
             projection: { _id: true, runImmediately: true },
+            includeResultMetadata: true,
         },
     );
 
