@@ -131,7 +131,7 @@ describe('cronTasks %i', () => {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-empty-function
-    function getTestingTask(taskCallback = () => {}) {
+    function getTestingTask(taskCallback = async () => wait(1)) {
         const taskId = uniqueId('task-');
 
         let resolve: ((value: unknown) => void) | null;
