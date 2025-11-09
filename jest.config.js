@@ -2,16 +2,17 @@ module.exports = {
   verbose: true,
   rootDir: './',
   roots: ['<rootDir>/src/', '<rootDir>/test/'],
-  preset: 'ts-jest',
+  // preset: 'ts-jest',
   moduleNameMapper: {
     '.+\\.(css|styl|less|sass|scss|png|jpg|ttf|woff|woff2)$': 'jest-transform-stub',
   },
-  globals: {
-    'ts-jest': {
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
       diagnostics: false,
-    },
+    }],
   },
   testEnvironment: 'node',
+  testRunner: 'jest-circus/runner',
   testRegex: '/test/(?!testHelpers|\.eslintrc).*\\.(ts|js)$',
   setupFilesAfterEnv: [],
   moduleFileExtensions: ['ts', 'js'],
@@ -26,5 +27,4 @@ module.exports = {
   },
   collectCoverageFrom: ['src/**/*.{js,ts}'],
   coverageDirectory: './reports/coverage',
-  testRunner: 'jasmine2',
 };
