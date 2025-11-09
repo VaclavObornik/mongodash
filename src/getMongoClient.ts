@@ -10,9 +10,8 @@ export function getMongoClient(): MongoClient {
     return mongoClientInstance;
 }
 
-type CommonOptions = { autoConnect?: boolean };
-type ReadyClientOptions = CommonOptions & { mongoClient: MongoClient };
-type UriOptions = CommonOptions & { uri: string; clientOptions?: MongoClientOptions };
+type ReadyClientOptions = { mongoClient: MongoClient };
+type UriOptions = { uri: string; clientOptions?: MongoClientOptions };
 export type InitOptions = ReadyClientOptions | UriOptions;
 
 export async function init(options: InitOptions): Promise<void> {
@@ -26,11 +25,8 @@ export async function init(options: InitOptions): Promise<void> {
         mongoClientInstance = options.mongoClient;
     } else if ('uri' in options) {
         mongoClientInstance = new MongoClient(options.uri, options.clientOptions);
+        await mongoClientInstance.connect();
     } else {
         throw new Error('The `mongoClient` or the connection `uri` parameter has to be specified.');
-    }
-
-    if (options.autoConnect) {
-        await mongoClientInstance.connect();
     }
 }
