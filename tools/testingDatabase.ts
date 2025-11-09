@@ -15,7 +15,7 @@ module.exports = {
 
   cleanTestingDatabases: async function (all = false) {
     const client = new mongodb.MongoClient(getConnectionString(), {
-      useUnifiedTopology: true
+      // useUnifiedTopology: true
     });
     await client.connect();
     const db = client.db();
