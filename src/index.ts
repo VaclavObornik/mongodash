@@ -4,6 +4,7 @@ import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } fro
 import { defaultOnError, OnError, secureOnError } from './OnError';
 import { defaultOnInfo, OnInfo, secureOnInfo } from './OnInfo';
 import { init as withLockInit } from './withLock';
+import { init as initWithTransaction } from './withTransaction';
 import { resolveInitPromise } from './initPromise';
 export {
     cronTask,
@@ -23,7 +24,7 @@ export { getCollection } from './getCollection';
 export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
 export { withLock, isLockAlreadyAcquiredError, WithLockOptions, LockAlreadyAcquiredError } from './withLock';
-export { withTransaction } from './withTransaction';
+export { withTransaction, registerPostCommitHook, PostCommitHook } from './withTransaction';
 
 let initCalled = false;
 
@@ -47,6 +48,8 @@ export async function init(options: InitOptions): Promise<void> {
 
     withLockInit({ onError });
 
+    initWithTransaction({ onError, onInfo });
+
     initCronTasks({
         runCronTasks: options.runCronTasks ?? true,
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
@@ -56,10 +59,7 @@ export async function init(options: InitOptions): Promise<void> {
         cronTaskFilter: options.cronTaskFilter ?? (() => true),
     });
 
-    await initMongoClient({
-        ...options,
-        autoConnect: options.autoConnect ?? true,
-    });
+    await initMongoClient(options);
 
     resolveInitPromise();
 }
