@@ -1,4 +1,4 @@
-const mongodb = require('mongodb');
+const { MongoClient } = require('mongodb');
 const _debug = require('debug')('mongodash:testingDatabase');
 
 const baseDatabaseName = 'mongodashTesting';
@@ -14,9 +14,21 @@ module.exports = {
   getConnectionString,
 
   cleanTestingDatabases: async function (all = false) {
-    const client = new mongodb.MongoClient(getConnectionString(), {
-      // useUnifiedTopology: true
-    });
+    let client: typeof MongoClient;
+      try {
+          client = new MongoClient(getConnectionString(), {
+              useUnifiedTopology: true
+          });
+      } catch (err) {
+          if (/MongoParseError: option useunifiedtopology is not supported/i.test((err as Error).toString())) {
+              client = new MongoClient(getConnectionString());
+          } else {
+            throw err;
+          }
+      }
+
+
+
     await client.connect();
     const db = client.db();
 
