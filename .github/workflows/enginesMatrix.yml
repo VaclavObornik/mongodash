@@ -16,23 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: [ 24.x, 16.x, 14.x, 12.x ]
-        mongodb-version: [ 5, 4.4, 3.6 ]
+        node-version: [ 24.x, 20.x ]
+        mongodb-version: [ 7, 8 ]
         mongodb-driver-version: [ 7.x, 6.x, 4.1 ]
-        exclude:
-          # Exclude mongodb-driver-version 6.x and 7.x from Node.js < 20
-          - node-version: 12.x
-            mongodb-driver-version: 6.x
-          - node-version: 12.x
-            mongodb-driver-version: 7.x
-          - node-version: 14.x
-            mongodb-driver-version: 6.x
-          - node-version: 14.x
-            mongodb-driver-version: 7.x
-          - node-version: 16.x
-            mongodb-driver-version: 6.x
-          - node-version: 16.x
-            mongodb-driver-version: 7.x
     env:
       MONGODB_VERSION: ${{ matrix.mongodb-version }}
     steps:
