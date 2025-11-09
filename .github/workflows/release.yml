@@ -6,7 +6,7 @@ on:
       - master
 
 env:
-  NODE_VERION: 14.x
+  NODE_VERION: 24.x
 
 jobs:
   publish-release:
