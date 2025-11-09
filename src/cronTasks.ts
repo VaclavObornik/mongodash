@@ -1,5 +1,5 @@
 // import * as _debug from 'debug';
-import { parseExpression as parseCronExpression, ParserOptions as CronExpressionParserOptions } from 'cron-parser';
+import CronExpressionParser, { CronExpressionOptions } from 'cron-parser';
 import { Collection, Filter, Document } from 'mongodb';
 import parseDuration from 'parse-duration';
 import { createContinuousLock } from './createContinuousLock';
@@ -70,7 +70,7 @@ const state = {
 
     ensureIndexPromise: <Promise<unknown> | null>null,
 
-    cronExpressionParserOptions: <CronExpressionParserOptions>{},
+    cronExpressionParserOptions: <CronExpressionOptions>{},
 };
 
 export interface CronTaskCaller {
@@ -105,7 +105,7 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
     if (/^CRON /i.test(interval)) {
         try {
             const expression = interval.slice(5);
-            const parsedExpression = parseCronExpression(expression, state.cronExpressionParserOptions);
+            const parsedExpression = CronExpressionParser.parse(expression, state.cronExpressionParserOptions);
             return () => parsedExpression.next().toDate();
         } catch (err) {
             throw new Error(`${invalidIntervalMessage} ${(err as Error).message}.`);
@@ -394,7 +394,7 @@ function runATask(): void {
 
 export type InitOptions = {
     runCronTasks: boolean;
-    cronExpressionParserOptions: CronExpressionParserOptions;
+    cronExpressionParserOptions: CronExpressionOptions;
     onError: OnError;
     onInfo: OnInfo;
     cronTaskCaller: CronTaskCaller;
