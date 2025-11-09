@@ -2,7 +2,7 @@
 
 import { ClientSession, TransactionOptions } from 'mongodb';
 import { getMongoClient } from './getMongoClient';
-import { OnError } from './onError';
+import { OnError } from './OnError';
 import { OnInfo } from './OnInfo';
 
 export type InitOptions = {
