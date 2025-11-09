@@ -251,10 +251,11 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
 
         const start = new Date();
         try {
-            await (function mongoDashRunTaskNotCyclic() {
+            function mongoDashRunTaskNotCyclic() {
                 _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
                 return task.task();
-            })();
+            }
+            await mongoDashRunTaskNotCyclic();
             const duration = Date.now() - start.getTime();
             _onInfo({ message: `Cron task '${task.taskId}' finished in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
         } catch (err) {
