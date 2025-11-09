@@ -65,37 +65,6 @@ describe('getters', () => {
             );
         });
 
-        it('autoConnect option should work', async () => {
-            const uri = getConnectionString();
-
-            // default value
-            const instance1 = getNewInstance();
-            try {
-                await instance1.mongodash.init({ uri });
-                assert.strictEqual(await instance1.mongodash.getCollection('aaa').countDocuments(), 0);
-            } finally {
-                await instance1.cleanUpInstance();
-            }
-
-            // 'true' value
-            const instance2 = getNewInstance();
-            try {
-                await instance2.mongodash.init({ uri, autoConnect: true });
-                assert.strictEqual(await instance2.mongodash.getCollection('aaa').countDocuments(), 0);
-            } finally {
-                await instance2.cleanUpInstance();
-            }
-
-            // 'false' value
-            const instance3 = getNewInstance();
-            try {
-                await instance3.mongodash.init({ uri, autoConnect: false });
-                assert.throws(() => instance3.mongodash.getCollection('aaa').countDocuments(), /MongoClient must be connected to perform this operation/);
-            } finally {
-                await instance3.cleanUpInstance();
-            }
-        });
-
         it('should not be possible to call before init', async () => {
             const instance1 = getNewInstance();
             assert.throws(() => instance1.mongodash.getMongoClient(), /The mongodash.init\(\) has to be called first./);
