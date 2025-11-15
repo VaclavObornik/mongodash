@@ -194,9 +194,13 @@ describe('withTransaction', () => {
             const { registerPostCommitHook, getMongoClient } = instance.mongodash;
 
             const session = getMongoClient().startSession();
+            await session.startTransaction();
 
             try {
-                assert.throws(() => registerPostCommitHook(session, noop), /It is not possible to register a post commit hook without active transaction/);
+                assert.throws(
+                    () => registerPostCommitHook(session, noop),
+                    /Post-commit hooks can be registered only for sessions created by mongodash's withTransaction function/i,
+                );
             } finally {
                 await session.endSession();
             }
