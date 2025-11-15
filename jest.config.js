@@ -9,11 +9,9 @@ module.exports = {
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       diagnostics: false,
+      useESM: true,
     }],
   },
-  transformIgnorePatterns: [
-    "/node_modules/(?!parse-duration)"
-  ],
   testEnvironment: 'node',
   testRunner: 'jest-circus/runner',
   testRegex: '/test/(?!testHelpers|\.eslintrc).*\\.(ts|js)$',
