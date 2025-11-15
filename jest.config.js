@@ -11,6 +11,9 @@ module.exports = {
       diagnostics: false,
     }],
   },
+  transformIgnorePatterns: [
+    "/node_modules/(?!parse-duration)"
+  ],
   testEnvironment: 'node',
   testRunner: 'jest-circus/runner',
   testRegex: '/test/(?!testHelpers|\.eslintrc).*\\.(ts|js)$',
