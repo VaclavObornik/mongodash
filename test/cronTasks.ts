@@ -1,13 +1,13 @@
-import * as assert from 'assert';
-import * as _debug from 'debug';
+import assert from 'assert';
+import _debug from 'debug';
 // @ts-ignore
 import { paths } from 'deepdash/standalone';
 import { isEmpty, isEqual, map, matches, pick, times, uniq, uniqueId } from 'lodash';
 import { Collection, UpdateFilter } from 'mongodb';
-import * as sinon from 'sinon';
+import sinon from 'sinon';
 import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
-import * as correlator from 'correlation-id';
+import correlator from 'correlation-id';
 
 const debug = _debug('mongodash:cronTests');
 

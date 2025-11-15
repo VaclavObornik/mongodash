@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-import * as assert from 'assert';
+import assert from 'assert';
 import { noop } from 'lodash';
 import { ClientSession } from 'mongodb';
 import { createSandbox, SinonStub } from 'sinon';

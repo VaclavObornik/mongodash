@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-import * as assert from 'assert';
+import assert from 'assert';
 import _debug from 'debug';
 import { isEqual, noop, times } from 'lodash';
 import { createSandbox } from 'sinon';
