@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-import * as assert from 'assert';
+import assert from 'assert';
 import { MongoClient } from 'mongodb';
 import { getNewInstance } from './testHelpers';
 const { getConnectionString } = require('../tools/testingDatabase');

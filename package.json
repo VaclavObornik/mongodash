@@ -35,7 +35,7 @@
   "dependencies": {
     "cron-parser": "^5.4.0",
     "debug": "^4.4.3",
-    "parse-duration": "^1.1.2"
+    "parse-duration": "^2.1.4"
   },
   "peerDependencies": {
     "mongodb": ">=4"

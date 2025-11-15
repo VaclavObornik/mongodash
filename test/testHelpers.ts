@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import { Collection } from 'mongodb';
-import * as _debug from 'debug';
+import _debug from 'debug';
 import { InitOptions, OnError } from '../src';
 const { getConnectionString, cleanTestingDatabases } = require('../tools/testingDatabase');
 
