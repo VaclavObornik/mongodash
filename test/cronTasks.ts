@@ -1,13 +1,13 @@
 import * as assert from 'assert';
+import * as correlator from 'correlation-id';
 import * as _debug from 'debug';
 // @ts-ignore
 import { paths } from 'deepdash/standalone';
-import { isEmpty, isEqual, map, matches, pick, times, uniq, uniqueId } from 'lodash';
+import { isEmpty, isEqual, map, matches, noop, pick, times, uniq, uniqueId } from 'lodash';
 import { Collection, UpdateFilter } from 'mongodb';
 import * as sinon from 'sinon';
 import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
-import { getNewInstance, wait } from './testHelpers';
-import * as correlator from 'correlation-id';
+import { getNewInstance, wait, waitUntil } from './testHelpers';
 
 const debug = _debug('mongodash:cronTests');
 
@@ -130,8 +130,7 @@ describe('cronTasks %i', () => {
         return () => (dates.length > callCount ? dates[callCount++] : distantFutureInterval());
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    function getTestingTask(taskCallback = () => {}) {
+    function getTestingTask(taskCallback = noop) {
         const taskId = uniqueId('task-');
 
         let resolve: ((value: unknown) => void) | null;
@@ -269,7 +268,7 @@ describe('cronTasks %i', () => {
         it.each(times(3, String))('should run a task automatically [%i]', async () => {
             const { taskId, task } = getTestingTask();
             await cronTask(taskId, getRunOnceInterval(), task);
-            await wait(100);
+            await waitUntil(() => task.callCount >= 1, { timeoutMs: 5000, message: 'Task should be called' });
             assert.strictEqual(task.callCount, 1, 'the testingTask has to be called');
         });
 
@@ -434,7 +433,7 @@ describe('cronTasks %i', () => {
                 await cronTask(task.taskId, getRunOnceInterval(new Date(Date.now() + 1000)), task.task);
             }
 
-            let explain: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            let explain: any;
             onNextCall(findNextTaskStub).callsFake(async (...args) => {
                 explain = await collection.find(args[0], args[2]).explain();
                 return findNextTaskStub.wrappedMethod.apply(collection, args);
@@ -446,7 +445,7 @@ describe('cronTasks %i', () => {
             const winningPlanPretty = JSON.stringify(explain?.queryPlanner?.winningPlan, null, 4);
             assert(winningPlan.includes('"indexName":"runSinceIndex"'), `The plan with runSinceIndex does not win: ${winningPlanPretty}`);
             assert(winningPlan.includes('"indexName":"runImmediatelyIndex"'), `The plan with runImmediatelyIndex does not win: ${winningPlanPretty}`);
-        });
+        }, 30000);
 
         it('should persist a runLog', async () => {
             const taskTime = 100;
@@ -493,8 +492,8 @@ describe('cronTasks %i', () => {
                     assert(entry.startedAt.getTime() <= entry.finishedAt!.getTime() - taskTime);
                     try {
                         dateRoughlyEqual(entry.startedAt, date);
-                    } catch (err) {
-                        err;
+                    } catch {
+                        // ignore
                     }
                 });
         });
@@ -637,9 +636,7 @@ describe('cronTasks %i', () => {
             prolongLockStub.resetHistory();
 
             while (callTimes.length === 0) {
-                debug('WAITING');
-                sandbox.clock.next();
-                await wait(50); // increase in case of problems with not enough lockTimes
+                await sandbox.clock.tickAsync(100);
             }
 
             assert(prolongLockStub.callCount > 0, 'The prolong task should be called a few times');
@@ -648,13 +645,11 @@ describe('cronTasks %i', () => {
             assert(lockTimes.every(({ at, lockedTill }) => lockedTill.getTime() - at.getTime() > 0.5 * lockTaskTime));
 
             prolongLockStub.resetHistory();
-            for (let i = 10; i >= 0; i--) {
-                debug('WAITING');
-                sandbox.clock.next();
-                await wait(50); // increase in case of problems with not enough lockTimes
+            for (let i = 10 * 150; i >= 0; i--) {
+                await sandbox.clock.tickAsync(100);
             }
             assert(prolongLockStub.notCalled, 'The lock should not continue after the task end');
-        }, 10000);
+        }, 30000);
 
         it('stop prolonging the lock when task finish during a running prolong', async () => {
             const { taskId, task } = getTestingTask(async () => {
@@ -1118,9 +1113,7 @@ describe('cronTasks %i', () => {
             await cronTask(taskId, getRunOnceInterval(), task);
 
             while (callTimes.length === 0) {
-                debug('WAITING');
-                sandbox.clock.next();
-                await wait(50); // increase in case of problems with not enough lockTimes
+                await sandbox.clock.tickAsync(100);
             }
 
             assert(prolongLockStub.callCount > 2);
@@ -1132,7 +1125,7 @@ describe('cronTasks %i', () => {
 
     describe('runCronTask', function () {
         it('should be possible to run a task with runCronTask', async () => {
-            let taskJob = () => {}; // eslint-disable-line @typescript-eslint/no-empty-function
+            let taskJob = noop;
             const { taskId, task } = getTestingTask(() => taskJob());
 
             await cronTask(taskId, distantFutureInterval, task);

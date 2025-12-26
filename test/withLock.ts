@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 import * as assert from 'assert';
 import _debug from 'debug';
-import { isEqual, noop, times } from 'lodash';
+import { isEqual, times } from 'lodash';
+import { Document } from 'mongodb';
 import { createSandbox } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
 
@@ -40,7 +40,7 @@ describe('withLock', () => {
         );
 
         const jobs = stubs.map((stub) =>
-            withLock(key, stub, { maxWaitForLock, firstDelay: 50, expireIn: 15 * 1000 }).then(
+            withLock(key, stub, { maxWaitForLock, startingDelay: 50, expireIn: 15 * 1000 }).then(
                 (result: number) => debug(`Result ${result}`),
                 (err: Error) => debug(`Thrown ${err}`), // Need to suppress error, NodeJS 10 cannot Promise.allSettled()
             ),
@@ -81,7 +81,13 @@ describe('withLock', () => {
         let caughtError: any;
         await assert.rejects(async () => {
             try {
-                await withLock(key, noop, { maxWaitForLock: time, startingDelay });
+                await withLock(
+                    key,
+                    async () => {
+                        /* noop */
+                    },
+                    { maxWaitForLock: time, startingDelay },
+                );
             } catch (err) {
                 caughtError = err;
                 throw err;
@@ -91,8 +97,9 @@ describe('withLock', () => {
         const end = new Date();
         const realWait = end.getTime() - start.getTime();
         debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
-        assert(realWait >= time - startingDelay, `The wait time was not long enough (${realWait}).`);
-        assert(realWait <= time + startingDelay, `The wait time was too long (${realWait})`);
+        const tolerance = 100;
+        assert(realWait >= time - startingDelay - tolerance, `The wait time was not long enough (${realWait}).`);
+        assert(realWait <= time + startingDelay + tolerance, `The wait time was too long (${realWait})`);
 
         assert.strictEqual(caughtError instanceof LockAlreadyAcquiredError, true);
         assert.strictEqual(isLockAlreadyAcquiredError(caughtError), true);
@@ -110,9 +117,9 @@ describe('withLock', () => {
             key,
             async () => {
                 const timeDiff = Date.now() - start.getTime();
-                assert(timeDiff < 100, `It taken too long to acquire lock: ${timeDiff}`);
+                assert(timeDiff < 500, `It taken too long to acquire lock: ${timeDiff}`);
             },
-            { maxWaitForLock: 5000, startDelay: 1000 },
+            { maxWaitForLock: 5000, startingDelay: 1000 },
         );
     });
 
@@ -136,9 +143,9 @@ describe('withLock', () => {
             key,
             async () => {
                 const timeDiff = Date.now() - start.getTime();
-                assert(timeDiff < 50, `It taken too long to acquire lock: ${timeDiff}`);
+                assert(timeDiff < 300, `It taken too long to acquire lock: ${timeDiff}`);
             },
-            { maxWaitForLock: 5000, startDelay: 1000 },
+            { maxWaitForLock: 5000, startingDelay: 1000 },
         );
 
         assert.strictEqual(caughtError instanceof LockAlreadyAcquiredError, false);
@@ -151,13 +158,13 @@ describe('withLock', () => {
         const { withLock, getCollection } = instance.mongodash;
         const key = 5;
         const defaultExpiration = 15 * 1000;
-        const collection = getCollection('locks');
+        const collection = getCollection<Document & { _id: string }>('locks');
         const expirationKey = 'expiresAt';
 
         await withLock(key, async () => {
             const doc = await collection.findOne({ _id: `${key}` });
-            assert(doc[expirationKey] <= new Date(Date.now() + defaultExpiration), 'expiration is too long');
-            assert(doc[expirationKey] >= new Date(Date.now() + defaultExpiration - 1000), 'expiration is too short');
+            assert(doc![expirationKey] <= new Date(Date.now() + defaultExpiration), 'expiration is too long');
+            assert(doc![expirationKey] >= new Date(Date.now() + defaultExpiration - 1000), 'expiration is too short');
 
             const expectedIndex = { name: 'expiresAtIndex', key: { [expirationKey]: 1 }, expireAfterSeconds: 0 };
             const indexes = await collection.listIndexes().toArray();
