@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 import * as assert from 'assert';
 import { MongoClient } from 'mongodb';
 import { getNewInstance } from './testHelpers';
@@ -18,6 +17,22 @@ describe('getters', () => {
             const collection = instance.mongodash.getCollection('someName');
             assert(collection.constructor.name === 'Collection');
             assert(collection.collectionName === 'someName');
+        });
+
+        it('should fall back to default when collectionFactory returns null', async () => {
+            // Initialize a fresh instance with a collectionFactory that returns null
+            const freshInstance = getNewInstance();
+            await freshInstance.initInstance({
+                collectionFactory: (_name: string) => null,
+            } as any);
+
+            try {
+                const collection = freshInstance.mongodash.getCollection('testCollection');
+                assert(collection.constructor.name === 'Collection');
+                assert(collection.collectionName === 'testCollection');
+            } finally {
+                await freshInstance.cleanUpInstance();
+            }
         });
     });
 
@@ -60,6 +75,7 @@ describe('getters', () => {
 
             const instance3 = getNewInstance();
             await assert.rejects(
+                // @ts-ignore
                 () => instance3.mongodash.init({ clientOptions: {} }),
                 /Error: The `mongoClient` or the connection `uri` parameter has to be specified./,
             );
@@ -68,6 +84,29 @@ describe('getters', () => {
         it('should not be possible to call before init', async () => {
             const instance1 = getNewInstance();
             assert.throws(() => instance1.mongodash.getMongoClient(), /The mongodash.init\(\) has to be called first./);
+        });
+    });
+
+    describe('init with custom globalsCollection', function () {
+        it('should accept a Collection instance as globalsCollection', async () => {
+            const instance = getNewInstance();
+            try {
+                const mongoClient = new MongoClient(getConnectionString());
+                await mongoClient.connect();
+                const db = mongoClient.db();
+                const customGlobalsCollection = db.collection('custom_globals');
+
+                await instance.mongodash.init({
+                    mongoClient,
+                    globalsCollection: customGlobalsCollection as any,
+                });
+
+                // Verify the client is initialized
+                const client = instance.mongodash.getMongoClient();
+                assert.strictEqual(client, mongoClient);
+            } finally {
+                await instance.cleanUpInstance();
+            }
         });
     });
 });

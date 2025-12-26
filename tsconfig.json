@@ -1,23 +1,28 @@
 {
-  "compilerOptions": {
-    "moduleResolution": "node",
-    "module":"commonjs",
-    "target": "es2017",
-    "lib": ["es2020"],
-    "strict": true,
-    "sourceMap": true,
-    "declaration": true,
-    "allowSyntheticDefaultImports": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "listFiles": false,
-    "declarationDir": "./dist/types",
-    "outDir": "./dist/lib",
-    "typeRoots": [
-      "./node_modules/@types"
+    "compilerOptions": {
+        "moduleResolution": "node",
+        "module": "commonjs",
+        "target": "es2017",
+        "lib": [
+            "es2020"
+        ],
+        "strict": true,
+        "sourceMap": true,
+        "declaration": true,
+        "allowSyntheticDefaultImports": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "listFiles": false,
+        "declarationDir": "./dist/types",
+        "outDir": "./dist/lib",
+        "typeRoots": [
+            "./node_modules/@types"
+        ],
+        "skipLibCheck": true
+    },
+    "include": [
+        "./src/**/*",
+        "./tools/**/*",
+        "./playground/**/*"
     ]
-  },
-  "include": [
-    "./src/**/*"
-  ]
 }

@@ -1,0 +1,9 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run lint-staged for formatting
+npx lint-staged
+
+# Type-check source files
+echo "Running TypeScript type-check..."
+npm run test:ts:src || exit 1

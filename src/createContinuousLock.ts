@@ -1,4 +1,4 @@
-import { Collection } from 'mongodb';
+import { Collection, Filter, UpdateFilter } from 'mongodb';
 import { OnError } from './OnError';
 
 type StopContinuousLock = () => Promise<void>;
@@ -20,7 +20,12 @@ export function createContinuousLock<DocumentType extends { _id: string }>(
             lastProlongPromise = (async () => {
                 try {
                     // debug('performing lock prolong');
-                    await collection.updateOne({ _id: documentId as any }, { $set: { [lockProperty]: new Date(Date.now() + lockTime) } } as any);
+                    await collection.updateOne(
+                        { _id: documentId } as Filter<DocumentType>,
+                        {
+                            $set: { [lockProperty]: new Date(Date.now() + lockTime) },
+                        } as UpdateFilter<DocumentType>,
+                    );
                 } catch (err) {
                     // debug('Error during task prolong', err);
                     onError(err as Error);

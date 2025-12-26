@@ -1,0 +1,1 @@
+{"root":["./src/api.ts","./src/main.ts","./src/store.ts","./src/vite-env.d.ts","./src/router/index.ts","./src/app.vue","./src/components/livetimeago.vue","./src/views/cronview.vue","./src/views/reactiveview.vue","../src/task-management/types.ts"],"version":"5.9.3"}

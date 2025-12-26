@@ -5,7 +5,6 @@ import { Collection, MongoError, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { OnError } from './OnError';
-import { random } from 'lodash';
 
 // const debug = _debug('mongodash:withLock');
 
@@ -101,7 +100,7 @@ export async function withLock<T>(
             await acquireLock();
             break;
         } catch (err) {
-            const randomMultiplier = random(1, 1.2, true);
+            const randomMultiplier = Math.random() * (1.2 - 1) + 1; // replaces random(1, 1.2, true)
             let waitTime = Math.min(2 ** n * randomMultiplier * startingDelay, maxDelay);
             let nextTime = new Date(Date.now() + waitTime);
 
