@@ -2,14 +2,14 @@
 
 <img src="https://raw.githubusercontent.com/VaclavObornik/mongodash/master/logo.png" alt="Mongodash" height="150" />
 
-A modern JavaScript & Typescript MongoDB-based utility library allowing to develop common app requirements incredible simple.
+A modern JavaScript & Typescript MongoDB-based utility library. Includes **Reactive Tasks**, **Cron Tasks**, **Distributed Locks**, **Transactions**, and a **[Dashboard](https://vaclavobornik.github.io/mongodash/dashboard)**.
 
 [![Coverage Status](https://coveralls.io/repos/github/VaclavObornik/mongodash/badge.svg?branch=master)](https://coveralls.io/github/VaclavObornik/mongodash?branch=master)
 [![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2FVaclavObornik%2Fmongodash%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/VaclavObornik/mongodash/master)
 ![Types](https://badgen.net/npm/types/tslib)
 
 
-See full documentation on [http://mongodash.com](http://mongodash.com)
+See full documentation [here](https://vaclavobornik.github.io/mongodash/getting-started)
 
 ---
 
@@ -21,20 +21,38 @@ npm install mongodash
 ```
 
 Initialization
-```javascript
-const mongodash = require('mongodash');
+```typescript
+import mongodash from 'mongodash';
 
 await mongodash.init({
     uri: 'mongodb://mongodb0.example.com:27017/myDatabase' 
 });
 ```
-See more initialization options [here](https://mongodash.readme.io/docs/initialization).
+See more initialization options [here](https://vaclavobornik.github.io/mongodash/initialization).
+
+<br>
+
+## Reactive Tasks
+
+```typescript
+import { reactiveTask } from 'mongodash';
+
+// Trigger a task when a user is updated
+await reactiveTask({
+    task: 'on-user-update', 
+    collection: 'users',
+    handler: async (doc) => {
+        console.log('User changed:', doc._id);
+    }
+});
+```
+See detailed description [here](https://vaclavobornik.github.io/mongodash/reactive-tasks).
 
 <br>
 
 ## cronTask
-```javascript
-const { cronTask } = require('mongodash');
+```typescript
+import { cronTask } from 'mongodash';
 
 await cronTask('my-task-id', '5m 20s', async () => {
   
@@ -42,14 +60,14 @@ await cronTask('my-task-id', '5m 20s', async () => {
 
 });
 ```
-See detailed description and more cron tasks methods [here](https://mongodash.readme.io/docs/cron-tasks).
+See detailed description and more cron tasks methods [here](https://vaclavobornik.github.io/mongodash/cron-tasks).
 
 <br>
 
 ## withLock
 
-```javascript
-const { withLock } from 'mongodash';
+```typescript
+import { withLock } from 'mongodash';
 
 await withLock('my-lock-id', async () => {
   
@@ -61,13 +79,13 @@ await withLock('my-lock-id', async () => {
   
 });
 ```
-See detailed description [here](https://mongodash.readme.io/docs/withlock).
+See detailed description [here](https://vaclavobornik.github.io/mongodash/with-lock).
 
 <br>
 
 ## withTransaction
-```javascript
-const { withTransaction, getCollection } = require('mongodash');
+```typescript
+import { withTransaction, getCollection } from 'mongodash';
 
 const createdDocuments = await withTransaction(async (session) => {
     
@@ -75,30 +93,30 @@ const createdDocuments = await withTransaction(async (session) => {
   const myDocument2 = { value: 2 };
   
   const collection = getCollection('myCollection');
-  await testCollection.insertOne(myDocument1, { session });
-  await testCollection.insertOne(myDocument2, { session });
+  await collection.insertOne(myDocument1, { session });
+  await collection.insertOne(myDocument2, { session });
   
   return [myDocument1, myDocument2];
 });
 ```
-See detailed description [here](https://mongodash.readme.io/docs/withtransaction).
+See detailed description [here](https://vaclavobornik.github.io/mongodash/with-transaction).
 
 <br>
 
 ## getCollection
-```javascript
-const { getCollection } = require('mongodash');
+```typescript
+import { getCollection } from 'mongodash';
 
 const myCollection = getCollection('myCollectionName');
 ```
-See detailed description [here](https://mongodash.readme.io/docs/getters).
+See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).
 
 <br>
 
 ## getMongoClient
-```javascript
-const { getMongoClient } = require('mongodash');
+```typescript
+import { getMongoClient } from 'mongodash';
 
 const mongoClient = getMongoClient();
 ```
-See detailed description [here](https://mongodash.readme.io/docs/getters).
+See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).

@@ -47,7 +47,7 @@ export async function withTransaction<T>(callback: (session: ClientSession) => P
             returnValue = await callback(clientSession);
         }, options);
 
-        const hooks = postCommitHooks.get(clientSession)!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        const hooks = postCommitHooks.get(clientSession)!;
 
         if (hooks.length > 0) {
             const results = await Promise.allSettled(hooks.map((hook) => hook()));
@@ -58,7 +58,7 @@ export async function withTransaction<T>(callback: (session: ClientSession) => P
             });
         }
 
-        return returnValue!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        return returnValue!;
     } finally {
         postCommitHooks.delete(clientSession);
         await clientSession.endSession();

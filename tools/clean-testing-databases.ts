@@ -1,4 +1,3 @@
-
-const { cleanTestingDatabases } = require('./testingDatabase');
+import { cleanTestingDatabases } from './testingDatabase';
 
 cleanTestingDatabases(true);

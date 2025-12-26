@@ -1,12 +1,13 @@
 // import * as _debug from 'debug';
-import CronExpressionParser, { CronExpressionOptions } from 'cron-parser';
-import { Collection, Filter, Document } from 'mongodb';
-import parseDuration from 'parse-duration';
+import { CronExpressionOptions } from 'cron-parser';
+import { Collection, Document, Filter } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
-import { OnError } from './OnError';
 import { initPromise } from './initPromise';
+import { CompatibleFindOneAndUpdateOptions, CompatibleModifyResult } from './mongoCompatibility';
+import { OnError } from './OnError';
 import { OnInfo } from './OnInfo';
+import { createIntervalFunction } from './parseInterval';
 
 export const CODE_CRON_TASK_STARTED = 'cronTaskStarted';
 export const CODE_CRON_TASK_FINISHED = 'cronTaskFinished';
@@ -14,6 +15,7 @@ export const CODE_CRON_TASK_SCHEDULED = 'cronTaskScheduled';
 export const CODE_CRON_TASK_FAILED = 'cronTaskFailed';
 
 // const debug = _debug('mongodash:cronTasks');
+const debug = (..._args: unknown[]) => {};
 
 export type TaskFunction = () => Promise<unknown> | void;
 export type ScalarInterval = number | string;
@@ -21,6 +23,36 @@ export type StaticInterval = ScalarInterval | Date;
 export type IntervalFunction = () => StaticInterval | Promise<StaticInterval>;
 export type Interval = ScalarInterval | IntervalFunction;
 export type TaskId = string;
+export type CronTaskStatus = 'locked' | 'running' | 'idle' | 'failed' | 'scheduled';
+
+export interface CronTaskRecord {
+    _id: TaskId;
+    status: CronTaskStatus;
+    nextRunAt: Date;
+    runImmediately: boolean;
+    lockedTill: Date | null;
+    lastRun: {
+        startedAt: Date;
+        finishedAt: Date | null;
+        error: string | null;
+        durationMs?: number;
+    } | null;
+    isRegistered: boolean; // True if the task is registered in this instance
+}
+
+export interface CronTaskQuery {
+    filter?: string; // Search by task ID
+    limit?: number;
+    skip?: number;
+    sort?: { field: keyof CronTaskRecord; direction: 1 | -1 };
+}
+
+export interface CronPagedResult<T> {
+    items: T[];
+    total: number;
+    limit: number;
+    offset: number;
+}
 
 type Task = { taskId: TaskId; task: TaskFunction; intervalFunction: IntervalFunction };
 
@@ -37,7 +69,10 @@ class TaskDocument implements Document {
 
     public lockedTill: Date | null = null;
 
-    constructor(public _id: TaskId, public runSince: Date) {}
+    constructor(
+        public _id: TaskId,
+        public runSince: Date,
+    ) {}
 }
 
 type EnforcedTask = {
@@ -81,43 +116,13 @@ export interface CronTaskFilter {
     ({ taskId }: { taskId: TaskId }): boolean;
 }
 
-let _taskCaller: CronTaskCaller;
-let _taskFilter: CronTaskFilter;
-let _onError: OnError;
-let _onInfo: OnInfo;
-
-function dateInMillis(milliseconds: number) {
-    return new Date(Date.now() + milliseconds);
-}
-
-const invalidIntervalMessage = `Invalid interval.`;
+let taskCaller: CronTaskCaller;
+let taskFilter: CronTaskFilter;
+let onError: OnError;
+let onInfo: OnInfo;
 
 function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date {
-    if (typeof interval === 'number') {
-        if (!Number.isFinite(interval)) {
-            throw new Error('Interval number has to be finite.');
-        }
-        return () => dateInMillis(interval);
-    } else if (typeof interval !== 'string') {
-        throw new Error(invalidIntervalMessage);
-    }
-
-    if (/^CRON /i.test(interval)) {
-        try {
-            const expression = interval.slice(5);
-            const parsedExpression = CronExpressionParser.parse(expression, state.cronExpressionParserOptions);
-            return () => parsedExpression.next().toDate();
-        } catch (err) {
-            throw new Error(`${invalidIntervalMessage} ${(err as Error).message}.`);
-        }
-    }
-
-    const duration = parseDuration(interval);
-    // debug('parsed duration: ', duration);
-    if (typeof duration !== 'number') {
-        throw new Error(invalidIntervalMessage);
-    }
-    return () => dateInMillis(duration);
+    return createIntervalFunction(interval, { cronOptions: state.cronExpressionParserOptions });
 }
 
 async function getNextRunDate(intervalFunction: IntervalFunction): Promise<Date> {
@@ -134,7 +139,7 @@ export async function runCronTask(taskId: TaskId): Promise<void> {
         throw new Error('It is not possible to call runCronTask inside another running task. Use the scheduleCronTaskImmediately() function instead.');
     }
 
-    // debug(`runCronTask called for ${taskId}`);
+    debug(`runCronTask called for ${taskId}`);
     if (!state.tasks.has(taskId)) {
         throw new Error(`Cannot run unknown task '${taskId}'.`);
     }
@@ -169,7 +174,7 @@ function getUnlockedFilter() {
 
 function getTasksToProcessFilter() {
     return {
-        $and: [{ _id: { $in: Array.from(state.tasks.keys()).filter((taskId) => _taskFilter({ taskId })) } }, getUnlockedFilter()],
+        $and: [{ _id: { $in: Array.from(state.tasks.keys()).filter((taskId) => taskFilter({ taskId })) } }, getUnlockedFilter()],
     };
 }
 
@@ -184,9 +189,9 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
         };
     }
 
-    // debug('finding a task', JSON.stringify(filter, null, 2));
+    debug('finding a task', JSON.stringify(filter, null, 2));
 
-    const { value: document } = await state.collection.findOneAndUpdate(
+    const result = await state.collection.findOneAndUpdate(
         filter,
         {
             $set: {
@@ -209,8 +214,11 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
             },
             projection: { _id: true, runImmediately: true },
             includeResultMetadata: true,
-        },
+        } as CompatibleFindOneAndUpdateOptions,
     );
+
+    // Handle v4/v5+ compatibility
+    const document = (result as unknown as CompatibleModifyResult).value;
 
     if (!document) {
         if (enforcedTask) {
@@ -236,15 +244,14 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
         return null;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return state.tasks.get(document._id)!;
 }
 
 async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
-    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, _onError);
+    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, onError);
 
     const processTheTask = async () => {
-        // debug(`processing task ${task.taskId}`);
+        debug(`processing task ${task.taskId} `);
         let taskError: Error | null = null;
         let nextRunDate: Date;
         let nextRunScheduled = false;
@@ -252,16 +259,16 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
         const start = new Date();
         try {
             function mongoDashRunTaskNotCyclic() {
-                _onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
+                onInfo({ message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: CODE_CRON_TASK_STARTED });
                 return task.task();
             }
             await mongoDashRunTaskNotCyclic();
             const duration = Date.now() - start.getTime();
-            _onInfo({ message: `Cron task '${task.taskId}' finished in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
+            onInfo({ message: `Cron task '${task.taskId}' finished in ${duration} ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FINISHED, duration });
         } catch (err) {
             const duration = Date.now() - start.getTime();
-            const reason = err instanceof Error ? err.message : `${err}`;
-            _onInfo({ message: `Cron task '${task.taskId}' failed in ${duration}ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason, duration });
+            const reason = err instanceof Error ? err.message : `${err} `;
+            onInfo({ message: `Cron task '${task.taskId}' failed in ${duration} ms.`, taskId: task.taskId, code: CODE_CRON_TASK_FAILED, reason, duration });
             taskError = err as Error;
         }
 
@@ -269,7 +276,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
             await stopContinuousLock(); // to avoid possibility of lock after the following document update
 
             nextRunDate = await getNextRunDate(task.intervalFunction);
-            // debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()}ms`);
+            debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()} ms`);
 
             await state.collection.updateOne(
                 { _id: task.taskId },
@@ -277,7 +284,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
                     $set: {
                         runSince: nextRunDate,
                         lockedTill: null,
-                        'runLog.0.error': taskError ? `${taskError}` : null,
+                        'runLog.0.error': taskError ? `${taskError} ` : null,
                         'runLog.0.finishedAt': new Date(),
                     },
                 },
@@ -292,12 +299,12 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
                     enforcedTask.resolve();
                 }
             } else if (taskError) {
-                _onError(taskError);
+                onError(taskError);
             }
 
             // we want to inform about the scheduling after the
             if (nextRunScheduled) {
-                _onInfo({
+                onInfo({
                     message: `Cron task '${task.taskId}' scheduled to ${nextRunDate!.toISOString()}.`,
                     taskId: task.taskId,
                     code: CODE_CRON_TASK_SCHEDULED,
@@ -308,12 +315,12 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     };
 
     try {
-        await _taskCaller(processTheTask);
+        await taskCaller(processTheTask);
     } catch (err) {
         // todo revise why we need to do this
         // this should fix situations when the _taskCaller has a problem
         await stopContinuousLock();
-        _onError(err as Error);
+        onError(err as Error);
     }
 }
 
@@ -332,13 +339,13 @@ async function getWaitTimeByNextTask(): Promise<number> {
         const timeToNext = nextTask.runSince.getTime() - Date.now();
         return Math.min(Math.max(timeToNext, 0), noTaskWaitTime);
     } catch (error) {
-        _onError(error as Error);
+        onError(error as Error);
         return noTaskWaitTime;
     }
 }
 
 function runATask(): void {
-    // debug('runATask called');
+    debug('runATask called');
     state.working = true;
     (async () => {
         await initPromise;
@@ -350,17 +357,17 @@ function runATask(): void {
             task = await findATaskToRun(enforcedTask);
 
             if (!task) {
-                // debug('no pending task found');
+                debug('no pending task found');
                 return; // the finally statement will be called anyway
             }
 
             await processTask(task, enforcedTask);
         } catch (error) {
-            // debug(`Catch error ${error}`);
+            debug(`Catch error ${error} `);
             if (enforcedTask) {
                 enforcedTask.reject(error as Error);
             } else {
-                _onError(error as Error);
+                onError(error as Error);
             }
         } finally {
             const shouldTriggerNext = () => state.shouldRun || !!state.enforcedTasks.length;
@@ -380,9 +387,9 @@ function runATask(): void {
 
                 // should we still trigger next?
                 if (shouldTriggerNext()) {
-                    // debug(`SCHEDULING NEXT CHECK AFTER ${waitTime}ms`);
+                    debug(`SCHEDULING NEXT CHECK AFTER ${waitTime} ms`);
                     state.nextTaskTimeoutId = setTimeout(() => {
-                        // debug("it's time!");
+                        debug("it's time!");
                         state.nextTaskTimeoutId = null;
                         runATask();
                     }, waitTime);
@@ -402,16 +409,16 @@ export type InitOptions = {
     cronTaskFilter: CronTaskFilter;
 };
 
-export function init({ runCronTasks, cronTaskFilter, cronExpressionParserOptions, onError, onInfo, cronTaskCaller }: InitOptions): void {
-    if (cronExpressionParserOptions.endDate) {
+export function init(initOptions: InitOptions): void {
+    if (initOptions.cronExpressionParserOptions.endDate) {
         throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
     }
-    state.shouldRun = runCronTasks;
-    _onError = onError;
-    _onInfo = onInfo;
-    _taskCaller = cronTaskCaller;
-    _taskFilter = cronTaskFilter;
-    state.cronExpressionParserOptions = cronExpressionParserOptions;
+    state.shouldRun = initOptions.runCronTasks;
+    onError = initOptions.onError;
+    onInfo = initOptions.onInfo;
+    taskCaller = initOptions.cronTaskCaller;
+    taskFilter = initOptions.cronTaskFilter;
+    state.cronExpressionParserOptions = initOptions.cronExpressionParserOptions;
 }
 
 function ensureStarted(): void {
@@ -422,14 +429,14 @@ function ensureStarted(): void {
     }
 
     if (!state.working) {
-        // debug('STARTING LOOP');
+        debug('STARTING LOOP');
         runATask();
     }
     // else the loop is already set
 }
 
 export function stopCronTasks(): void {
-    // debug('STOPPING CRON TASKS');
+    debug('STOPPING CRON TASKS');
     state.shouldRun = false;
     if (state.nextTaskTimeoutId) {
         clearTimeout(state.nextTaskTimeoutId);
@@ -472,11 +479,99 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
         task,
         intervalFunction,
     });
-    // debug(`task ${taskId} has been registered`);
+    debug(`task ${taskId} has been registered`);
 
     await ensureIndex();
 
     if (state.shouldRun) {
         ensureStarted();
     }
+}
+
+/**
+ * Lists cron tasks with pagination and sorting.
+ */
+export async function getCronTasksList(query: CronTaskQuery = {}): Promise<CronPagedResult<CronTaskRecord>> {
+    const limit = query.limit ?? 50;
+    const skip = query.skip ?? 0;
+
+    let sortField = query.sort?.field || 'runSince';
+    if (sortField === 'nextRunAt') sortField = 'runSince';
+    const sort = { [sortField]: query.sort?.direction ?? 1 } as Record<string, 1 | -1>;
+
+    let localTaskIds = Array.from(state.tasks.keys());
+
+    if (query.filter) {
+        const regex = new RegExp(query.filter, 'i');
+        localTaskIds = localTaskIds.filter((id) => regex.test(id));
+    }
+
+    const filter: Filter<TaskDocument> = {
+        _id: { $in: localTaskIds },
+    };
+
+    const [docs, total] = await Promise.all([
+        state.collection.find(filter).sort(sort).skip(skip).limit(limit).toArray(),
+        state.collection.countDocuments(filter),
+    ]);
+
+    const items: CronTaskRecord[] = docs.map((doc) => {
+        const lastRun = doc.runLog[0] || null;
+        let lastRunData = null;
+
+        if (lastRun) {
+            lastRunData = {
+                startedAt: lastRun.startedAt,
+                finishedAt: lastRun.finishedAt,
+                error: lastRun.error,
+                durationMs: lastRun.finishedAt ? lastRun.finishedAt.getTime() - lastRun.startedAt.getTime() : undefined,
+            };
+        }
+
+        let status: CronTaskStatus = 'idle';
+        if (doc.lockedTill && doc.lockedTill > new Date()) {
+            status = 'locked';
+            // We can assume 'running' if locked, unless just failed/finished and lock not released yet?
+            // Actually 'lockedTill' is set during processing.
+            // If we want to distinguish 'running' from just 'locked', it's hard without another field.
+            // But 'locked' usually means running or zombie.
+            status = 'running';
+        } else if (doc.runImmediately) {
+            status = 'scheduled';
+        } else if (lastRun?.error) {
+            // Only if the LATEST run failed and we are not currently running
+            status = 'failed';
+        }
+
+        return {
+            _id: doc._id,
+            status,
+            nextRunAt: doc.runSince,
+            runImmediately: doc.runImmediately,
+            lockedTill: doc.lockedTill,
+            lastRun: lastRunData,
+            isRegistered: state.tasks.has(doc._id),
+        };
+    });
+
+    return {
+        items,
+        total,
+        limit,
+        offset: skip,
+    };
+}
+
+/**
+ * Triggers a cron task immediately.
+ * Alias for scheduleCronTaskImmediately but returns the new state or confirmation.
+ */
+export async function triggerCronTask(taskId: TaskId): Promise<void> {
+    return scheduleCronTaskImmediately(taskId);
+}
+/**
+ * Returns IDs of all registered cron tasks in this instance.
+ */
+export function getRegisteredCronTaskIds(): string[] {
+    return Array.from(state.tasks.keys()).sort();
 }
