@@ -1,0 +1,15 @@
+{
+    "node-version": [
+        "24",
+        "20"
+    ],
+    "mongodb-version": [
+        "7",
+        "8"
+    ],
+    "mongodb-driver-version": [
+        "7.x",
+        "6.x",
+        "4.1"
+    ]
+}

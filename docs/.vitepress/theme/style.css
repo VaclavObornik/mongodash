@@ -1,0 +1,16 @@
+/**
+ * Custom Theme Colors - Vibrant Violet/Purple
+ */
+:root {
+  --vp-c-brand-1: #8e44ad;
+  --vp-c-brand-2: #9b59b6;
+  --vp-c-brand-3: #a569bd;
+  --vp-c-brand-soft: rgba(142, 68, 173, 0.16);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #bd34fe 30%, #41d1ff);
+}
+
+.VPImage.image-src {
+  filter: drop-shadow(0 0 2em #bd34feaa);
+}

@@ -8,7 +8,7 @@ export function secureOnError(onError: OnError): OnError {
     return (error) => {
         try {
             onError(error);
-        } catch (onErrorFailure) {
+        } catch {
             // intentionally suppress
         }
     };
