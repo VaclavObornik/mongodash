@@ -20,6 +20,7 @@ export function createContinuousLock<DocumentType extends { _id: string }>(
             lastProlongPromise = (async () => {
                 try {
                     // debug('performing lock prolong');
+                    if (!taskInProgress) return;
                     await collection.updateOne(
                         { _id: documentId } as Filter<DocumentType>,
                         {
