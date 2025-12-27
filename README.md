@@ -147,3 +147,42 @@ await processInBatches(
 );
 ```
 See detailed description [here](https://vaclavobornik.github.io/mongodash/process-in-batches).
+
+<br>
+
+## Dashboard
+
+![Dashboard Screenshot](docs/assets/dashboard.png)
+
+```typescript
+import * as express from 'express';
+import { serveDashboard } from 'mongodash';
+
+const app = express();
+
+app.use('/dashboard', async (req, res, next) => {
+    // Check if mongodash handled the request
+    const handled = await serveDashboard(req, res);
+    if (!handled) {
+        next();
+    }
+});
+
+app.listen(3000);
+```
+
+See detailed description [here](https://vaclavobornik.github.io/mongodash/dashboard).
+
+<br>
+
+## getPrometheusMetrics
+
+```typescript
+import { getPrometheusMetrics } from 'mongodash';
+
+app.get('/metrics', async (req, res) => {
+    const registry = await getPrometheusMetrics();
+    res.set('Content-Type', registry.contentType);
+    res.end(await registry.metrics());
+});
+```
