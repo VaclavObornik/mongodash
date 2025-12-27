@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/VaclavObornik/mongodash/compare/v1.7.0...v1.7.1) (2025-12-27)
+
+
+### Bug Fixes
+
+* update user update handler to use docId instead of doc ([527307f](https://github.com/VaclavObornik/mongodash/commit/527307f344844f13fdd3ad2d8209193bd7e79f98))
+
 # [1.7.0](https://github.com/VaclavObornik/mongodash/compare/v1.6.1...v1.7.0) (2025-12-27)
 
 
