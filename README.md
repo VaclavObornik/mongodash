@@ -1,6 +1,6 @@
 <br>
 
-<img src="https://raw.githubusercontent.com/VaclavObornik/mongodash/master/logo.png" alt="Mongodash" height="150" />
+<img src="logo.png" alt="Mongodash" height="150" />
 
 A modern JavaScript & Typescript MongoDB-based utility library. Includes **Reactive Tasks**, **Cron Tasks**, **Distributed Locks**, **Transactions**, and a **[Dashboard](https://vaclavobornik.github.io/mongodash/dashboard)**.
 
