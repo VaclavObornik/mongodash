@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Mongodash"
   text: "Modern MongoDB Utility Library"
-  tagline: "Cron, Locks, Transactions, and more made simple."
+  tagline: "Cron, Locks, Transactions, Reactive tasks and more made simple."
   image:
     src: /logo-backgroundless.png
     alt: Mongodash Logo
