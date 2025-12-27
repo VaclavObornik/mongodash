@@ -1,3 +1,15 @@
+# [1.7.0](https://github.com/VaclavObornik/mongodash/compare/v1.6.1...v1.7.0) (2025-12-27)
+
+
+### Bug Fixes
+
+* update README for improved task handler documentation ([1a3da53](https://github.com/VaclavObornik/mongodash/commit/1a3da53a973fccccdae2a556df23317d5187c9a1))
+
+
+### Features
+
+* add logo to header and update image references ([8ff1442](https://github.com/VaclavObornik/mongodash/commit/8ff144236f5742a1edf04d31ef7eb61a31995388))
+
 ## [1.6.1](https://github.com/VaclavObornik/mongodash/compare/v1.6.0...v1.6.1) (2025-12-27)
 
 
