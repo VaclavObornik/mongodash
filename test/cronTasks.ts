@@ -60,6 +60,7 @@ describe('cronTasks %i', () => {
         sandbox.useFakeTimers({
             now: new Date(),
             shouldAdvanceTime: true,
+            shouldClearNativeTimers: true,
         }),
     );
     afterEach(() => sandbox.verifyAndRestore());
