@@ -25,7 +25,24 @@ export default defineConfig({
             {
                 text: 'Core Features',
                 items: [
-                    { text: 'Reactive Tasks', link: '/reactive-tasks' },
+                    {
+                        text: 'Reactive Tasks',
+                        collapsed: false,
+                        items: [
+                            { text: 'Overview', link: '/reactive-tasks/' },
+                            { text: 'Getting Started', link: '/reactive-tasks/getting-started' },
+                            { text: 'Examples', link: '/reactive-tasks/examples' },
+                            { text: 'Guides', link: '/reactive-tasks/guides' },
+                            { text: 'Configuration', link: '/reactive-tasks/configuration' },
+                            { text: 'Retry Policy', link: '/reactive-tasks/policy-retry' },
+                            { text: 'Cleanup Policy', link: '/reactive-tasks/policy-cleanup' },
+                            { text: 'Filter & Logic Evolution', link: '/reactive-tasks/evolution' },
+                            { text: 'Reconciliation', link: '/reactive-tasks/reconciliation' },
+                            { text: 'Task Management & DLQ', link: '/reactive-tasks/management' },
+                            { text: 'Monitoring', link: '/reactive-tasks/monitoring' },
+                            { text: 'Core Concepts', link: '/reactive-tasks/core-concepts' },
+                        ]
+                    },
                     { text: 'Cron Tasks', link: '/cron-tasks' },
                     { text: 'Dashboard', link: '/dashboard' },
                     { text: 'Concurrency Control', link: '/with-lock' },
