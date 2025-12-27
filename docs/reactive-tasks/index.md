@@ -15,7 +15,7 @@ Reactive Tasks allow you to define background jobs that trigger automatically wh
 -   **[Concurrency Control](./configuration.md)**: Limit parallel execution to protect downstream resources.
 -   **[Deduplication](./guides.md#idempotency--re-execution)**: Automatic debouncing ("wait for data to settle") and task merging.
 -   **[Observability](./monitoring.md)**: First-class Prometheus metrics support.
--   **[Dashboard](http://localhost:3000/dashboard)**: A visual Dashboard to monitor, retry, and debug tasks.
+-   **[Dashboard](../dashboard.md)**: A visual Dashboard to monitor, retry, and debug tasks.
 -   **Developer Friendly**: Zero-config local development, fully typed with TypeScript.
 
 ## Reactive vs Scheduled Tasks

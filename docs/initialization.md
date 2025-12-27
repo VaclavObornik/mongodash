@@ -50,7 +50,7 @@ See [Cron Tasks](./cron-tasks.md#initialization-options-optional) for feature-sp
 
 #### Reactive Tasks Options
 
-See [Reactive Tasks](./reactive-tasks.md#5-advanced-initialization) for feature-specific options (e.g. `concurrency`, `monitoring`, etc).
+See [Reactive Tasks](./reactive-tasks/configuration.md#advanced-initialization) for feature-specific options (e.g. `concurrency`, `monitoring`, etc).
 
 #### Testing Options
 

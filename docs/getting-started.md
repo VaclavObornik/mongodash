@@ -25,7 +25,7 @@ await mongodash.init({
     uri: 'mongodb://mongodb0.example.com:27017/myDatabase' 
 });
 ```
-See more initialization options [here](https://vaclavobornik.github.io/mongodash/initialization).
+See more initialization options [here](./initialization.md).
 
 <br>
 
@@ -43,7 +43,7 @@ await reactiveTask({
     }
 });
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/reactive-tasks).
+See detailed description [here](./reactive-tasks/index.md).
 
 <br>
 
@@ -57,7 +57,7 @@ await cronTask('my-task-id', '5m 20s', async () => {
 
 });
 ```
-See detailed description and more cron tasks methods [here](https://vaclavobornik.github.io/mongodash/cron-tasks).
+See detailed description and more cron tasks methods [here](./cron-tasks.md).
 
 <br>
 
@@ -76,7 +76,7 @@ await withLock('my-lock-id', async () => {
   
 });
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/with-lock).
+See detailed description [here](./with-lock.md).
 
 <br>
 
@@ -96,7 +96,7 @@ const createdDocuments = await withTransaction(async (session) => {
   return [myDocument1, myDocument2];
 });
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/with-transaction).
+See detailed description [here](./with-transaction.md).
 
 <br>
 
@@ -106,7 +106,7 @@ import { getCollection } from 'mongodash';
 
 const myCollection = getCollection('myCollectionName');
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).
+See detailed description [here](./getters.md).
 
 <br>
 
@@ -116,7 +116,7 @@ import { getMongoClient } from 'mongodash';
 
 const mongoClient = getMongoClient();
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).
+See detailed description [here](./getters.md).
 
 <br>
 
@@ -143,13 +143,13 @@ await processInBatches(
     }
 );
 ```
-See detailed description [here](https://vaclavobornik.github.io/mongodash/process-in-batches).
+See detailed description [here](./process-in-batches.md).
 
 <br>
 
 ## Dashboard
 
-![Dashboard Screenshot](docs/assets/dashboard.png)
+![Dashboard Screenshot](./assets/dashboard.png)
 
 ```typescript
 import * as express from 'express';
@@ -168,7 +168,7 @@ app.use('/dashboard', async (req, res, next) => {
 app.listen(3000);
 ```
 
-See detailed description [here](https://vaclavobornik.github.io/mongodash/dashboard).
+See detailed description [here](./dashboard.md).
 
 <br>
 

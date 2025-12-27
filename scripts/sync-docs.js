@@ -37,7 +37,18 @@ for (let i = 0; i < lines.length; i++) {
 }
 
 // Reassemble content
-const cleanContent = lines.slice(startLineIndex).join('\n');
+const cleanContent = lines.slice(startLineIndex).join('\n')
+    // Fix image paths for VitePress
+    .replace(/docs\/assets\//g, './assets/')
+    // Fix absolute links to documentation
+    .replace(/https:\/\/vaclavobornik\.github\.io\/mongodash\//g, './')
+    // Fix specific directory link
+    .replace(/\.\/reactive-tasks(?!\/)/g, './reactive-tasks/index.md')
+    // Fix extensionless file links (add .md)
+    .replace(/\]\(\.\/([^)]+?)\)/g, (match, p1) => {
+        if (p1.endsWith('.md') || p1.endsWith('.png') || p1.includes('index.md')) return match;
+        return `](.\/${p1}.md)`;
+    });
 
 const finalContent = `---
 title: Getting Started
