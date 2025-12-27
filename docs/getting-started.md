@@ -38,8 +38,8 @@ import { reactiveTask } from 'mongodash';
 await reactiveTask({
     task: 'on-user-update', 
     collection: 'users',
-    handler: async (doc) => {
-        console.log('User changed:', doc._id);
+    handler: async ({ docId }) => {
+        console.log('User changed:', docId);
     }
 });
 ```
