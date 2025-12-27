@@ -71,22 +71,41 @@ const user = await context.getDocument({
 });
 ```
 
-**2. Transactions (`session`)**
-To ensure atomic updates across multiple collections, pass a `session` to `getDocument`. This ensures that the document fetch and your subsequent writes happen within the same transaction snapshot.
+**2. Transactions (`session`) & Exactly-Once Processing**
+
+To ensure atomic updates across multiple collections and achieve **Exactly-Once Processing**, you can use MongoDB transactions.
+
+**a) Snapshot Isolation**
+Pass a `session` to `getDocument` to ensure the document fetch is part of your transaction snapshot.
+
+**b) Atomic Completion**
+By default, the library updates the task status to `completed` *after* your handler finishes. If a crash occurs in between, the task might re-run (At-Least-Once).
+To prevent this, use `markCompleted({ session })` to include the task status update within your business transaction.
 
 ```typescript
-import { withTransaction } from 'mongodash';
+handler: async ({ docId, markCompleted, getDocument }) => {
+    const session = client.startSession();
+    try {
+        await session.withTransaction(async () => {
+             // 1. Consistent Read (Optional but recommended)
+             const doc = await getDocument({ session });
 
-handler: async (context) => {
-    await withTransaction(async (session) => {
-        // Pass session to getDocument to participate in the transaction
-        const doc = await context.getDocument({ session });
+             // 2. Business Logic (Updates, etc.)
+             await otherCollection.updateOne(
+                 { _id: docId }, 
+                 { $set: { processed: true } }, 
+                 { session }
+             );
 
-        // Perform other operations in the same transaction
-        await otherCollection.updateOne({ _id: doc.refId }, { $set: { ... } }, { session });
-    });
+             // 3. Exactly-Once: Commit task status with the transaction
+             await markCompleted({ session });
+        });
+    } finally {
+        await session.endSession();
+    }
 }
 ```
+When `markCompleted` is called, the library skips its automatic finalization.
 
 **3. Locking Resources (`withLock`)**
 While the *task itself* is locked (ensuring only one worker processes this specific task instance), you might need to lock shared resources if your handler accesses data outside the source document.

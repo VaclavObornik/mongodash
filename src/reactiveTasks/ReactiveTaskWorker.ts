@@ -1,20 +1,20 @@
-import { Document, Filter, Collection, FindOptions } from 'mongodb';
 import * as _debug from 'debug';
+import { Collection, Document, Filter, FindOptions } from 'mongodb';
 import { createContinuousLock } from '../createContinuousLock';
-import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
+import { defaultOnError, OnError } from '../OnError';
+import { defaultOnInfo, OnInfo } from '../OnInfo';
 import { compileWatchProjection } from './compileWatchProjection';
+import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
-    ReactiveTaskRecord,
-    ReactiveTaskCaller,
-    ReactiveTaskFilter,
-    ReactiveTaskContext,
-    CODE_REACTIVE_TASK_STARTED,
-    CODE_REACTIVE_TASK_FINISHED,
     CODE_REACTIVE_TASK_FAILED,
+    CODE_REACTIVE_TASK_FINISHED,
+    CODE_REACTIVE_TASK_STARTED,
+    ReactiveTaskCaller,
+    ReactiveTaskContext,
+    ReactiveTaskFilter,
+    ReactiveTaskRecord,
     TaskConditionFailedError,
 } from './ReactiveTaskTypes';
-import { OnInfo, defaultOnInfo } from '../OnInfo';
-import { OnError, defaultOnError } from '../OnError';
 
 import { MetricsCollector } from './MetricsCollector';
 
@@ -97,6 +97,23 @@ export class ReactiveTaskWorker {
         let deferredTo: Date | undefined;
         let throttledUntil: Date | undefined;
 
+        let isManuallyFinalized = false;
+
+        const finalizeTaskSuccess = async (duration: number, session?: import('mongodb').ClientSession) => {
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
+
+            const entry = this.registry.getEntry(tasksCollection.collectionName);
+            await entry.repository.finalizeTask(
+                taskRecord,
+                taskDef.retryStrategy,
+                undefined,
+                taskDef.debounceMs,
+                { durationMs: duration },
+                taskDef.executionHistoryLimit,
+                session ? { session } : undefined,
+            );
+        };
+
         const context: ReactiveTaskContext<Document> = {
             docId: taskRecord.sourceDocId,
             watchedValues: taskRecord.lastObservedValues || null,
@@ -127,6 +144,21 @@ export class ReactiveTaskWorker {
             },
             throttleAll: (until: number | Date) => {
                 throttledUntil = typeof until === 'number' ? new Date(Date.now() + until) : until;
+            },
+            markCompleted: async (options?: { session?: import('mongodb').ClientSession }) => {
+                if (isManuallyFinalized) {
+                    return; // Idempotent
+                }
+
+                isManuallyFinalized = true;
+                const duration = Date.now() - start;
+
+                try {
+                    await finalizeTaskSuccess(duration, options?.session);
+                } catch (error) {
+                    isManuallyFinalized = false;
+                    throw error;
+                }
             },
         };
 
@@ -204,23 +236,24 @@ export class ReactiveTaskWorker {
             }
 
             if (deferredTo) {
+                if (isManuallyFinalized) {
+                    this.onInfo({
+                        message: `[ReactiveTask] Task '${taskRecord.task}' (ID: ${taskRecord._id}) was manually marked as completed, but deferCurrent() was also called. Ignoring defer request.`,
+                        code: 'reactiveTaskDeferIgnored',
+                        taskId: taskRecord._id.toString(),
+                    });
+                    return;
+                }
+
                 debug(`[Scheduler ${this.instanceId}] Deferring task '${taskRecord.task}' until ${deferredTo.toISOString()}`);
                 const entry = this.registry.getEntry(tasksCollection.collectionName);
                 await entry.repository.deferTask(taskRecord, deferredTo);
                 return;
             }
 
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
-
-            const entry = this.registry.getEntry(tasksCollection.collectionName);
-            await entry.repository.finalizeTask(
-                taskRecord,
-                taskDef.retryStrategy,
-                undefined,
-                taskDef.debounceMs,
-                { durationMs: duration },
-                taskDef.executionHistoryLimit,
-            );
+            if (!isManuallyFinalized) {
+                await finalizeTaskSuccess(duration);
+            }
         } catch (error) {
             // Logging is already done in processTheTask via onInfo
             await stopLock();

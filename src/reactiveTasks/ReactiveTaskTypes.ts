@@ -1,4 +1,4 @@
-import { Collection, Document, ObjectId, ResumeToken, WithId, Filter, FindOptions } from 'mongodb';
+import { Collection, Document, Filter, FindOptions, ObjectId, ResumeToken, WithId } from 'mongodb';
 import type { ReactiveTaskRetryStrategy } from './ReactiveTaskRetryStrategy';
 
 /**
@@ -163,10 +163,20 @@ export interface ReactiveTaskContext<T = Document> {
      * Pauses ALL tasks of this type (on this instance only) until the specified time.
      * Useful for instance-local backoff (e.g. rate limits), but note that other instances will continue processing.
      *
-     * IMPORTANT: This does NOT automatically defer the *current* task.
      * The current task will be marked as successful unless you also call `deferCurrent()` or throw an error.
      */
     throttleAll(until: number | Date): void;
+
+    // --- Transaction Support ---
+    /**
+     * Atomically marks the task as completed within the provided MongoDB Transaction.
+     * Use this to ensure that the task status update is committed atomically with your business logic.
+     *
+     * If you call this method, the library will NOT perform the automatic finalization step.
+     *
+     * @param options.session The MongoDB ClientSession where the transaction is active.
+     */
+    markCompleted(options?: { session?: import('mongodb').ClientSession }): Promise<void>;
 }
 
 /**

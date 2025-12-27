@@ -91,6 +91,7 @@ export class ReactiveTaskRepository<T extends Document> {
         debounceMs = 1000,
         executionStats?: { durationMs: number },
         executionHistoryLimit = 5,
+        options?: { session?: import('mongodb').ClientSession },
     ): Promise<void> {
         const isError = !!error;
         const errorMessage = error?.message || 'Unknown error';
@@ -162,23 +163,27 @@ export class ReactiveTaskRepository<T extends Document> {
             };
         }
 
-        await this.tasksCollection.updateOne({ _id: taskRecord._id }, [
-            {
-                $set: updateSet,
-            },
-            {
-                $set: {
-                    executionHistory: {
-                        $slice: [
-                            {
-                                $concatArrays: [{ $ifNull: ['$executionHistory', []] }, [historyEntry]],
-                            },
-                            -executionHistoryLimit, // Keep last N
-                        ],
+        await this.tasksCollection.updateOne(
+            { _id: taskRecord._id },
+            [
+                {
+                    $set: updateSet,
+                },
+                {
+                    $set: {
+                        executionHistory: {
+                            $slice: [
+                                {
+                                    $concatArrays: [{ $ifNull: ['$executionHistory', []] }, [historyEntry]],
+                                },
+                                -executionHistoryLimit, // Keep last N
+                            ],
+                        },
                     },
                 },
-            },
-        ]);
+            ],
+            options,
+        );
     }
 
     public async deferTask(taskRecord: ReactiveTaskRecord<T>, delay: number | Date): Promise<void> {

@@ -54,3 +54,5 @@ Every task record in the `_tasks` collection follows a specific lifecycle:
 | `failed` | Task permanently failed after exceeding all [retries](./policy-retry.md) or the `maxDuration` window. |
 
 
+
+
