@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="Mongodash" height="150" />
 
-A modern JavaScript & Typescript MongoDB-based utility library. Includes **Reactive Tasks**, **Cron Tasks**, **Distributed Locks**, **Transactions**, and a **[Dashboard](https://vaclavobornik.github.io/mongodash/dashboard)**.
+A modern JavaScript & Typescript MongoDB-based utility library. Includes [**Reactive Tasks**](https://vaclavobornik.github.io/mongodash/reactive-tasks), [**Cron Tasks**](https://vaclavobornik.github.io/mongodash/cron-tasks), [**Distributed Locks**](https://vaclavobornik.github.io/mongodash/with-lock), [**Transactions**](https://vaclavobornik.github.io/mongodash/with-transaction), and a [**Dashboard**](https://vaclavobornik.github.io/mongodash/dashboard).
 
 [![Coverage Status](https://coveralls.io/repos/github/VaclavObornik/mongodash/badge.svg?branch=master)](https://coveralls.io/github/VaclavObornik/mongodash?branch=master)
 [![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2FVaclavObornik%2Fmongodash%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/VaclavObornik/mongodash/master)
@@ -41,8 +41,8 @@ import { reactiveTask } from 'mongodash';
 await reactiveTask({
     task: 'on-user-update', 
     collection: 'users',
-    handler: async (doc) => {
-        console.log('User changed:', doc._id);
+    handler: async ({ docId }) => {
+        console.log('User changed:', docId);
     }
 });
 ```
