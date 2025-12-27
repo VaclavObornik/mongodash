@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+    base: '/mongodash/',
     title: "Mongodash",
     description: "A modern JavaScript & Typescript MongoDB-based utility library",
     cleanUrls: true,
