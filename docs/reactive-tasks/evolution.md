@@ -1,4 +1,4 @@
-# Filter & Logic Evolution
+# Task Evolution
 
 Reactive Tasks are designed to evolve with your application. As you deploy new versions of your code, you might change the `filter`, `watchProjection`, or the `handler` logic itself. The system automatically detects these changes and adapts the task state accordingly.
 

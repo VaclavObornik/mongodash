@@ -25,7 +25,7 @@ you can use the following options:
 | `retryPolicy` | `RetryPolicy` | Configuration for retries on failure. See [Retry Policy](./policy-retry.md). |
 | `cleanupPolicy` | `CleanupPolicy` | Configuration for automatic cleanup of orphaned task records. See [Cleanup Policy](./policy-cleanup.md). |
 | `executionHistoryLimit` | `number` | Number of past execution entries to keep in `_tasks` doc. Default: `5`. |
-| `evolution` | `EvolutionConfig` | Configuration for handling task logic updates (versioning, reconciliation policies). See [Filter & Logic Evolution](./evolution.md). |
+| `evolution` | `EvolutionConfig` | Configuration for handling task logic updates (versioning, reconciliation policies). See [Task Evolution](./evolution.md). |
 
 ## Advanced Initialization
 

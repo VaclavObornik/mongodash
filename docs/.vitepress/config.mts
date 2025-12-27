@@ -36,7 +36,7 @@ export default defineConfig({
                             { text: 'Configuration', link: '/reactive-tasks/configuration' },
                             { text: 'Retry Policy', link: '/reactive-tasks/policy-retry' },
                             { text: 'Cleanup Policy', link: '/reactive-tasks/policy-cleanup' },
-                            { text: 'Filter & Logic Evolution', link: '/reactive-tasks/evolution' },
+                            { text: 'Task Evolution', link: '/reactive-tasks/evolution' },
                             { text: 'Reconciliation', link: '/reactive-tasks/reconciliation' },
                             { text: 'Task Management & DLQ', link: '/reactive-tasks/management' },
                             { text: 'Monitoring', link: '/reactive-tasks/monitoring' },

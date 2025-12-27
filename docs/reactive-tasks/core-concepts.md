@@ -41,6 +41,8 @@ To ensure reliability and efficiency, the system needs to determine *when* to tr
     watchProjection: { updatedAt: 1 } 
     ```
 
+
+
 ## Task Lifecycle (States)
 
 Every task record in the `_tasks` collection follows a specific lifecycle:

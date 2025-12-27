@@ -1,23 +1,63 @@
 # Guides & Patterns
 
+## Understanding Logic: Filter vs WatchProjection
 
+It is important to understand the relationship between `filter` and `watchProjection`. You can think of them as **"The Gatekeeper"** and **"The Trigger"**.
 
-## Idempotency & Re-execution
+### 1. `filter` (The Gatekeeper)
+Decides **IF** the task should exist at all.
+-   **Enters Filter**: If a document changes to match the filter (e.g., `status` changes from `'pending'` -> `'paid'`), the task is **created and runs immediately**, regardless of `watchProjection`.
+-   **Leaves Filter**: If a document changes to no longer match (e.g., `'paid'` -> `'cancelled'`), the task is **removed/cleaned up** (depending on your [Cleanup Policy](./policy-cleanup.md)).
 
-The system is designed with an **At-Least-Once** execution guarantee. This is a fundamental property of distributed systems that value reliability over "exactly-once".
+### 2. `watchProjection` (The Trigger)
+Decides **WHEN** to re-run the task *if it already exists*.
+-   Once the task matches the filter and is active, `watchProjection` determines which future updates matter.
+-   **Example**: You have a task to sync paid orders to ERP.
+    ```typescript
+    {
+        filter: { status: 'paid' },
+        watchProjection: { status: 1 } // Only watch status
+    }
+    ```
+    -   **Scenario**: User updates `shippingAddress` on a `paid` order.
+    -   **Result**: The system sees `status` didn't change (still `'paid'`). It **IGNORES** the address update. The ERP sync **does not re-run** (potentially leaving ERP with stale address).
+    -   **Fix**: If you need to re-sync on address changes, include `shippingAddress` in `watchProjection` (or omit it to watch everything).
 
-While the system strives to execute your handler exactly once per event, there are specific scenarios where it might execute multiple times for the same document state. Therefore, **your `handler` must be idempotent**.
+> [!TIP]
+> **Best Practice**: If you use a field in `filter` (like `status: 'paid'`), you implicitly don't need to put it in `watchProjection` unless the value can change while remaining valid (e.g., `amount > 100`). However, adding it is harmless and can improve clarity and storage efficiency.
 
-### Common Re-execution Scenarios
+## Execution Model & Guarantees
+
+The system follows a **Reactive (State-Based)** execution model. It prioritizes **Eventual Consistency** over strict event logging.
+
+### 1. State-Based Consistency (vs. Event-Based)
+
+Unlike an Event Bus (e.g., Kafka) that processes every single state transition log, this library guarantees that the **current state** of the document will consistently match your task logic.
+
+*   **Transient States are Skipped**: If a document changes state multiple times rapidly (e.g., `pending` -> `paid` -> `refunded` in milliseconds), the system may skip processing the intermediate `paid` state if it is no longer valid by the time the worker picks it up.
+*   **Late Binding Check**: This is enforced via a runtime check (`getDocument`). If the fetched document no longer matches the task filter or the watched fields have changed since triggering, the task for the "stale" version is skipped. This is a feature (Optimistic Concurrency) to prevent processing obsolete data.
+
+### 2. At-Least-Once Guarantee (Final State)
+
+The system guarantees that the **final, stable state** of a document will strictly be processed **at least once**.
+If a worker crashes, loses network, or restarts *before* successfully completing a task (and releasing the lock), the task remains `pending`. Another worker will pick it up and retry execution.
+
+### 3. Idempotency Requirement
+
+Because of the "At-Least-Once" guarantee, **your `handler` must be idempotent**.
+This means it should be safe to run the same handler multiple times for the same document without producing incorrect side effects (like sending duplicate emails or charging a card twice).
+
+#### Common Re-execution Scenarios
 
 1.  **Transient Failures ([Retries](./policy-retry.md))**: If a worker crashes or loses network connectivity during execution (before marking the task `completed`), the lock will expire. Another worker will pick up the task and retry it.
 2.  **[Reconciliation](./reconciliation.md) Recovery**: If task records are deleted (e.g. manual cleanup) but source documents remain, once a reconciliation runs, it recreates them as `pending`.
-3.  **Filter Re-matching** If a document is no longer matching the task filter, the task is deleted because the **[sourceDocumentDeletedOrNoLongerMatching](./policy-cleanup.md)** cleanup policy is used and then the document is changed back again to match the task filter, the task will be recreated as `pending`.
-4.  **Explicit Reprocessing**: You might trigger re-execution manually (via `retryReactiveTasks`) or through [schema evolution policies](./evolution.md) (`reprocess_all`).
+3.  **Filter Re-matching**: If a document is no longer matching the task filter, the task is deleted because the **[sourceDocumentDeletedOrNoLongerMatching](./policy-cleanup.md)** cleanup policy is used and then the document is changed back again to match the task filter, the task will be recreated as `pending`.
+4.  **Explicit Reprocessing**: You might trigger re-execution manually (via `retryReactiveTasks`) or through [Task Evolution policies](./evolution.md) (`reprocess_all`).
 
-### Designing Idempotent Handlers
+#### Designing Idempotent Handlers
 
 Ensure your handler allows multiple executions without adverse side effects.
+
 
 **Example**:
 ```typescript
