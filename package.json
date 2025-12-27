@@ -125,8 +125,7 @@
     "lint-staged": {
         "{src,test}/**/*.ts": [
             "organize-imports-cli",
-            "prettier --write",
-            "git add"
+            "prettier --write"
         ]
     }
 }
