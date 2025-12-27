@@ -5,8 +5,6 @@ import { parse as parseUrl } from 'url';
 import { ReactiveTaskScheduler, _scheduler as defaultScheduler } from '../reactiveTasks/index';
 import { OperationalTaskController } from './OperationalTaskController';
 
-console.log('[serveDashboard.ts] Module loaded');
-
 const mimeTypes: Record<string, string> = {
     '.html': 'text/html',
     '.js': 'text/javascript',

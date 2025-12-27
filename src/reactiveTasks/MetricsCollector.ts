@@ -62,7 +62,8 @@ export class MetricsCollector {
     private readonly onInfo: OnInfo;
     private readonly onError: OnError;
 
-    // Prom-client module (dynamically loaded)
+    // Prom-client module (dynamically loaded for optional peer dependency)
+    // Using 'any' because prom-client may not be installed. Full type: typeof import('prom-client')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private promClientModule: any;
 
