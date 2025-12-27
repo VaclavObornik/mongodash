@@ -10,7 +10,7 @@ It is a "full scan" process that ensures the state of your tasks matches the act
 
 1.  **On Startup (Partial)**: When `startReactiveTasks()` is called, the leader performs a reconciliation only for tasks that have **never been reconciled before**. This ensures that newly added tasks catch up with existing data.
 2.  **On History Loss**: If the MongoDB Change Stream buffer (Oplog) is full and events are lost (Error code 280), the system automatically triggers full reconciliation to ensure consistency is restored.
-3.  **On Trigger Evolution**: When you change a task filter or projection (**any JSON difference**), the system triggers reconciliation to backfill or update tasks, provided the **[Evolution Strategy](./configuration.md#evolution-configuration)** (`reconcileOnTriggerChange`) allows it. Default: `true`.
+3.  **On Trigger Evolution**: The system detects any change to your `filter` or `watchProjection` (via JSON comparison). By default, this triggers a reconciliation scan to backfill tasks for existing, newly matching documents. This is controlled by the **[Evolution Strategy](./configuration.md#evolution-configuration)** (default: `true`).
 
 ## Resilience
 
