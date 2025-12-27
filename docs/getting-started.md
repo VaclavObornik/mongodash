@@ -118,3 +118,69 @@ const mongoClient = getMongoClient();
 ```
 See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).
 
+<br>
+
+## processInBatches
+
+```typescript
+import { processInBatches } from 'mongodash';
+
+await processInBatches(
+    db.collection('users'), 
+    { status: 'active' }, 
+    async (user) => {
+        // Transform user data
+        return {
+            updateOne: {
+                filter: { _id: user._id },
+                update: { $set: { processed: true } }
+            }
+        };
+    },
+    async (batchOps) => {
+        // Execute batch
+        await db.collection('users').bulkWrite(batchOps);
+    }
+);
+```
+See detailed description [here](https://vaclavobornik.github.io/mongodash/process-in-batches).
+
+<br>
+
+## Dashboard
+
+![Dashboard Screenshot](docs/assets/dashboard.png)
+
+```typescript
+import * as express from 'express';
+import { serveDashboard } from 'mongodash';
+
+const app = express();
+
+app.use('/dashboard', async (req, res, next) => {
+    // Check if mongodash handled the request
+    const handled = await serveDashboard(req, res);
+    if (!handled) {
+        next();
+    }
+});
+
+app.listen(3000);
+```
+
+See detailed description [here](https://vaclavobornik.github.io/mongodash/dashboard).
+
+<br>
+
+## getPrometheusMetrics
+
+```typescript
+import { getPrometheusMetrics } from 'mongodash';
+
+app.get('/metrics', async (req, res) => {
+    const registry = await getPrometheusMetrics();
+    res.set('Content-Type', registry.contentType);
+    res.end(await registry.metrics());
+});
+```
+

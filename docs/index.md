@@ -6,7 +6,7 @@ hero:
   text: "Modern MongoDB Utility Library"
   tagline: "Cron, Locks, Transactions, and more made simple."
   image:
-    src: /logo.png
+    src: /logo-backgroundless.png
     alt: Mongodash Logo
   actions:
     - theme: brand

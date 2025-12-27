@@ -14,3 +14,8 @@
 .VPImage.image-src {
   filter: drop-shadow(0 0 2em #bd34feaa);
 }
+
+.VPNavBarTitle .logo {
+  height: auto;
+  width: 150px;
+}

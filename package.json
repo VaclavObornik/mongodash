@@ -1,6 +1,6 @@
 {
     "name": "mongodash",
-    "version": "1.7.1",
+    "version": "2.1.0",
     "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
     "main": "./dist/lib/index.js",
     "types": "dist/types/index.d.ts",
@@ -101,6 +101,10 @@
         "mongo",
         "utility",
         "library",
+        "queue",
+        "pubsub",
+        "message queue",
+        "reactive tasks",
         "cron",
         "lock",
         "scheduling",
