@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/VaclavObornik/mongodash/compare/v1.5.0...v1.6.0) (2025-12-27)
+
+
+### Bug Fixes
+
+* ensure post-commit hooks can only be registered within active transactions ([97dbd29](https://github.com/VaclavObornik/mongodash/commit/97dbd29763f1d8f97b1b0f85be99886840183a48))
+
+
+### Features
+
+* reactive  tasks ([601d3d3](https://github.com/VaclavObornik/mongodash/commit/601d3d3dfcc3f977451ccbe02714051b08c65067))
+
 ## [1.4.2](https://github.com/VaclavObornik/mongodash/compare/v1.4.1...v1.4.2) (2022-06-16)
 
 
