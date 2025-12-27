@@ -28,6 +28,7 @@ describe('Reactive Task Transactions', () => {
         await instance.mongodash.reactiveTask({
             collection: SOURCE_COLLECTION,
             task: 'publish-course',
+            watchProjection: { _id: 1 }, // Watch only ID (never changes) to prevent 'title' updates from re-triggering task
             handler: async (context: any) => {
                 // Type 'any' to avoid strict type import issues in test setup for now
                 const { docId, markCompleted } = context;
