@@ -182,7 +182,7 @@ export class ReactiveTaskRepository<T extends Document> {
                     },
                 },
             ],
-            options,
+            options || {},
         );
     }
 
