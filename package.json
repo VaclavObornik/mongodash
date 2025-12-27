@@ -1,6 +1,6 @@
 {
     "name": "mongodash",
-    "version": "1.6.1",
+    "version": "2.1.0",
     "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
     "main": "./dist/lib/index.js",
     "types": "dist/types/index.d.ts",
@@ -114,7 +114,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/VaclavObornik/mongodash.git"
+        "url": "git+https://github.com/VaclavObornik/mongodash.git"
     },
     "publishConfig": {
         "access": "public"
