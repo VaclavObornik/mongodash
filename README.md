@@ -120,3 +120,30 @@ import { getMongoClient } from 'mongodash';
 const mongoClient = getMongoClient();
 ```
 See detailed description [here](https://vaclavobornik.github.io/mongodash/getters).
+
+<br>
+
+## processInBatches
+
+```typescript
+import { processInBatches } from 'mongodash';
+
+await processInBatches(
+    db.collection('users'), 
+    { status: 'active' }, 
+    async (user) => {
+        // Transform user data
+        return {
+            updateOne: {
+                filter: { _id: user._id },
+                update: { $set: { processed: true } }
+            }
+        };
+    },
+    async (batchOps) => {
+        // Execute batch
+        await db.collection('users').bulkWrite(batchOps);
+    }
+);
+```
+See detailed description [here](https://vaclavobornik.github.io/mongodash/process-in-batches).
