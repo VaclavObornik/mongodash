@@ -6,6 +6,7 @@ export default defineConfig({
     description: "A modern JavaScript & Typescript MongoDB-based utility library",
     cleanUrls: true,
     themeConfig: {
+        logo: '/logo.png',
         nav: [
             { text: 'Home', link: '/' },
             { text: 'Getting Started', link: '/getting-started' },
