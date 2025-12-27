@@ -6,13 +6,16 @@ Reactive Tasks allow you to define background jobs that trigger automatically wh
 
 ## Features
 
--   **Model-Driven**: Logic follows data state, not API calls.
--   **Distributed & scalable**: Leader-follower architecture allows horizontal scaling.
--   **[Reliable Retries](./policy-retry.md)**: Configurable backoff strategies (exponential, fixed, linear) for transient failures.
+-   **Reactive**: Tasks triggered instantly (near-real-time) by database changes (insert/update).
+-   **Distributed**: Safe to run on multiple instances (Kubernetes/Serverless). Only one instance processes a specific task for a specific document at a time.
+-   **Efficient Listener**: Regardless of the number of application instances, **only one instance (the leader)** listens to the MongoDB Change Stream. This minimizes database load significantly (**O(1) connections**), though it implies that the total ingestion throughput is limited by the single leader instance.
+-   **[Reliable Retries](./policy-retry.md)**: Built-in retry mechanisms (exponential backoff) and "Dead Letter Queue" logic.
+-   **Efficient**: Uses MongoDB Driver for low-latency updates and avoids polling where possible.
+-   **Memory Efficiency**: The system is designed to handle large datasets. During live scheduling (Change Streams), reconciliation, and periodic cleanup, the library **only loads the `_id`'s** of the source documents into memory, keeping the footprint low regardless of the collection size. Note that task *storage* size depends on your `watchProjection` configuration—see [Storage Optimization](./core-concepts.md#change-detection-and-storage-optimization).
 -   **[Concurrency Control](./configuration.md)**: Limit parallel execution to protect downstream resources.
-
--   **[Deduplication](./guides.md#idempotency--re-execution)**: Automatic debouncing and task merging.
--   **[Observability](./monitoring.md)**: Built-in Prometheus metrics and Grafana dashboard.
+-   **[Deduplication](./guides.md#idempotency--re-execution)**: Automatic debouncing ("wait for data to settle") and task merging.
+-   **[Observability](./monitoring.md)**: First-class Prometheus metrics support.
+-   **[Dashboard](http://localhost:3000/dashboard)**: A visual Dashboard to monitor, retry, and debug tasks.
 -   **Developer Friendly**: Zero-config local development, fully typed with TypeScript.
 
 ## Reactive vs Scheduled Tasks
