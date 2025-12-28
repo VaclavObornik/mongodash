@@ -292,8 +292,8 @@ onMounted(() => {
             <td>
               <div style="font-size:12px">
                 <div v-if="item.status === 'pending' || item.status === 'processing'">
-                   <div>{{ formatDateTime(item.scheduledAt) }} <small class="text-secondary">{{ refreshState.timezoneSuffix.value }}</small></div>
-                   <small class="text-secondary"><LiveTimeAgo :date="item.scheduledAt" /></small>
+                   <div>{{ item.nextRunAt ? formatDateTime(item.nextRunAt) : '-' }} <small class="text-secondary">{{ refreshState.timezoneSuffix.value }}</small></div>
+                   <small class="text-secondary" v-if="item.nextRunAt"><LiveTimeAgo :date="item.nextRunAt" /></small>
                 </div>
                 <span v-else class="text-secondary">-</span>
               </div>

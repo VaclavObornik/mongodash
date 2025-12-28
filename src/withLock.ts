@@ -7,12 +7,6 @@ import { getCollection } from './getCollection';
 
 // const debug = _debug('mongodash:withLock');
 
-import { onError } from './OnError';
-
-// const debug = _debug('mongodash:withLock');
-
-// init function removed
-
 export type LockKey = string | number | ObjectId;
 
 export type LockCallback<T> = () => Promise<T>;
@@ -128,7 +122,7 @@ export async function withLock<T>(key: LockKey, callback: LockCallback<T>, optio
         }
     }
 
-    const stopContinuousLock = createContinuousLock(collection, stringKey, expirationKey, expireIn, onError);
+    const stopContinuousLock = createContinuousLock(collection, stringKey, expirationKey, expireIn);
 
     const cleanUp = () => Promise.all([stopContinuousLock(), releaseLock()]);
 

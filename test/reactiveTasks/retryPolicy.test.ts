@@ -1,7 +1,6 @@
-import { getNewInstance } from '../testHelpers';
-import { Collection, Document, ObjectId } from 'mongodb';
-import { createReusableWaitableStub } from '../testHelpers';
 import * as _debug from 'debug';
+import { Collection, Document, ObjectId } from 'mongodb';
+import { createReusableWaitableStub, getNewInstance } from '../testHelpers';
 
 const debug = _debug('mongodash:tests:retryPolicy');
 
@@ -146,7 +145,7 @@ describe('reactiveTasks - Retry Policy', () => {
         const time1 = Date.now();
 
         // Warning: Waiting 10s in test is slow.
-        // We can inspect the scheduledAt in DB instead of waiting.
+        // We can inspect the nextRunAt in DB instead of waiting.
         await new Promise((r) => setTimeout(r, 500)); // wait for DB update
 
         const tasksCollection = instance.mongodash.getCollection(`retryTask_${taskId}_tasks`);
@@ -156,8 +155,8 @@ describe('reactiveTasks - Retry Policy', () => {
         expect(task!.status).toBe('pending');
         expect(task!.attempts).toBe(1);
 
-        // scheduledAt should be roughly time1 + 10s
-        const scheduledDelay = task!.scheduledAt.getTime() - time1;
+        // nextRunAt should be roughly time1 + 10s
+        const scheduledDelay = task!.nextRunAt.getTime() - time1;
         // Should be around 10000ms. Allow margin.
         expect(scheduledDelay).toBeGreaterThan(9000);
         expect(scheduledDelay).toBeLessThan(15000);

@@ -1,14 +1,13 @@
-import { Collection, Filter, UpdateFilter } from 'mongodb';
-import { OnError } from './OnError';
+import { Collection, Filter, ObjectId, UpdateFilter } from 'mongodb';
+import { onError } from './OnError';
 
 type StopContinuousLock = () => Promise<void>;
 
-export function createContinuousLock<DocumentType extends { _id: string }>(
+export function createContinuousLock<DocumentType extends { _id: string | ObjectId }>(
     collection: Collection<DocumentType>,
-    documentId: string,
+    documentId: DocumentType['_id'],
     lockProperty: keyof DocumentType,
     lockTime: number,
-    onError: OnError,
 ): StopContinuousLock {
     let taskInProgress = true;
     let prolongLockTimeoutId: ReturnType<typeof setTimeout> | null = null;

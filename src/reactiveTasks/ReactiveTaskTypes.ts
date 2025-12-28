@@ -45,16 +45,29 @@ export interface ReactiveTaskRecord<T = Document> {
     sourceDocId: WithId<T>['_id']; // ID of the original document
     status: ReactiveTaskStatus;
     attempts: number; // Number of processing attempts
-    scheduledAt: Date; // When the task should be executed (for debouncing/retry)
+
+    /**
+     * The effective time used for polling.
+     * - Pending: Time when the task becomes eligible to run.
+     * - Processing: Time when the lock expires (zombie recovery).
+     * - Completed/Failed: NULL (not indexed, not polled).
+     */
+    nextRunAt: Date | null;
+
+    /**
+     * The original time the task was first scheduled to run.
+     * This preserves the original baseline for global lag calculation.
+     */
+    dueAt: Date;
+
     createdAt: Date; // When the task was first created
     updatedAt: Date; // When the task was last updated (new data)
     startedAt?: Date | null; // When the worker started processing
     completedAt?: Date | null; // When the task was completed
-    lockExpiresAt?: Date | null; // "Visibility Timeout" - while locked by a worker
+
     firstErrorAt?: Date | null; // When the finding frequency started (first error in sequence)
     lastError?: string | null; // Last error that occurred
     lastFinalizedAt?: Date | null; // When the task was last finalized (completed or failed)
-    initialScheduledAt?: Date | null; // Original scheduled time (if current `scheduledAt` is deferred)
     lastObservedValues?: Record<string, unknown> | null; // Values of watched fields from the last run
     lastSuccess?: {
         at: Date;
@@ -156,7 +169,7 @@ export interface ReactiveTaskContext<T = Document> {
      * Defers the task execution to a later time.
      * The task will remain 'pending' (or effectively so) until the specified time.
      * Use this for temporary external failures (e.g. rate limits) or to postpone processing.
-     * This preserves the original `scheduledAt` for global lag calculation.
+     * This preserves the original baseline `dueAt` for global lag calculation.
      */
     deferCurrent(delay: number | Date): void;
     /**
@@ -247,7 +260,7 @@ export interface ReactiveTask<T extends Document> {
      */
     filter?: Filter<T>;
     handler: ReactiveTaskHandler<T>;
-    /** Time (ms) or interval description (e.g. "500ms", "1s") to postpone `scheduledAt` on change (Debouncing). Default: 1000ms */
+    /** Time (ms) or interval description (e.g. "500ms", "1s") to postpone execution on change (Debouncing). Default: 1000ms */
     debounce?: number | string;
     /** Retry Policy configuration */
     retryPolicy?: RetryPolicy;
@@ -328,6 +341,12 @@ export interface ReactiveTaskSchedulerOptions {
      * Default: '24h'
      */
     reactiveTaskCleanupInterval?: number | string;
+    /**
+     * Timeout for the visibility lock on tasks (ms).
+     * Tasks that take longer than this will be picked up by other workers (if lock renewal fails).
+     * Default: 60000 (1m)
+     */
+    visibilityTimeoutMs?: number;
 }
 
 /**

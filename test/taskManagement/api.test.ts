@@ -62,7 +62,7 @@ describe('OperationalTaskController', () => {
                 {
                     limit: 10,
                     skip: 5,
-                    sort: { field: 'scheduledAt', direction: 1 },
+                    sort: { field: 'nextRunAt', direction: 1 },
                 },
             );
         });
@@ -74,7 +74,7 @@ describe('OperationalTaskController', () => {
                 {
                     limit: 50,
                     skip: 0,
-                    sort: { field: 'scheduledAt', direction: 1 },
+                    sort: { field: 'nextRunAt', direction: 1 },
                 },
             );
         });

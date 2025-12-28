@@ -57,12 +57,12 @@ describe('ReactiveTask History', () => {
             sourceDocId: doc._id,
             status: 'processing', // simulating it was locked
             attempts: 1,
-            scheduledAt: new Date(),
+            nextRunAt: new Date(Date.now() + 5000),
+            dueAt: new Date(),
             createdAt: new Date(),
             updatedAt: new Date(),
             lastObservedValues: null,
             lastError: null,
-            lockExpiresAt: new Date(Date.now() + 5000),
         } as any);
 
         const taskRecord = (await tasksCollection.findOne({ _id: taskId }))!;

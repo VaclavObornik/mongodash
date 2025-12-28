@@ -157,8 +157,10 @@ describe('Reactive Task Monitoring', () => {
             task: string;
             sourceDocId: string;
             status: string;
-            scheduledAt: Date;
-            lockExpiresAt: Date;
+            // nextRunAt/dueAt are standard fields now
+            nextRunAt: Date | null;
+            dueAt: Date;
+            // But here we are defining a generic type for collection.
             createdAt: Date;
             updatedAt: Date;
             attempts: number;
@@ -167,8 +169,9 @@ describe('Reactive Task Monitoring', () => {
             task: 'lagTask',
             sourceDocId: 'stuck_doc',
             status: 'pending',
-            scheduledAt: new Date(Date.now() - 5000), // 5s lag
-            lockExpiresAt: new Date(Date.now() + 10000), // Locked in future
+            nextRunAt: new Date(Date.now() + 10000), // Locked in future (simulating processing lock expiration or future run)
+            // For lag calculation, we need dueAt. Use 5s ago.
+            dueAt: new Date(Date.now() - 5000),
             createdAt: new Date(),
             updatedAt: new Date(),
             attempts: 0,
@@ -923,8 +926,8 @@ describe('Reactive Task Monitoring', () => {
     });
 
     it('should calculate global lag based on initialScheduledAt for deferred tasks', async () => {
-        // This test verifies that the global lag metric uses initialScheduledAt (if present)
-        // rather than scheduledAt, to correctly measure lag for deferred tasks.
+        // This test verifies that the global lag metric uses dueAt (if present)
+        // rather than nextRunAt, to correctly measure lag for deferred tasks.
         await instance.initInstance({
             globalsCollection: GLOBAL_COLLECTION_NAME,
             monitoring: {
@@ -957,6 +960,8 @@ describe('Reactive Task Monitoring', () => {
             status: 'pending',
             sourceDocId: 'doc1',
             attempts: 0,
+            nextRunAt: deferredTime,
+            dueAt: initialTime,
             createdAt: initialTime,
             updatedAt: initialTime,
             scheduledAt: deferredTime,
@@ -982,7 +987,7 @@ describe('Reactive Task Monitoring', () => {
 
         const valueObj = getMetricValue(foundMetric!, { task_name: 'lag_test_task' }, false);
         expect(valueObj).toBeDefined();
-        // Lag should be ~10 seconds (from initialScheduledAt), not 0 (from future scheduledAt)
+        // Lag should be ~10 seconds (from dueAt), not 0 (from future nextRunAt)
         expect(valueObj!.value).toBeGreaterThan(5);
 
         await instance.mongodash.stopReactiveTasks();

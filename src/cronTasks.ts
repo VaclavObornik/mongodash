@@ -279,7 +279,7 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
 }
 
 async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
-    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime, onError);
+    const stopContinuousLock = createContinuousLock(state.collection, task.taskId, 'lockedTill', lockTime);
 
     const processTheTask = async () => {
         debug(`processing task ${task.taskId} `);

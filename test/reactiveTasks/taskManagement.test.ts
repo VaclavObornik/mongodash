@@ -101,10 +101,10 @@ describe('Reactive Task Management', function () {
                 sourceDocId,
                 status: 'processing',
                 attempts: 1,
-                scheduledAt: new Date(),
+                nextRunAt: new Date(),
+                dueAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
-                lockExpiresAt: new Date(Date.now() + 60000),
             } as any);
 
             const res = await API.retryReactiveTasks({ task: taskName, sourceDocFilter: { _id: sourceDocId } });
@@ -125,8 +125,8 @@ describe('Reactive Task Management', function () {
                 sourceDocId,
                 status: 'failed',
                 attempts: 5,
-                scheduledAt: pastDate,
-                initialScheduledAt: null,
+                nextRunAt: pastDate,
+                dueAt: pastDate,
                 createdAt: pastDate,
                 updatedAt: new Date(),
             } as any);
@@ -135,8 +135,9 @@ describe('Reactive Task Management', function () {
 
             const task = (await db.collection(tasksCollectionName).findOne({ sourceDocId })) as any;
             expect(task.status).toBe('pending');
-            expect(new Date(task.initialScheduledAt).getTime()).toEqual(pastDate.getTime());
-            expect(task.scheduledAt.getTime()).toBeGreaterThan(pastDate.getTime());
+            // Check dueAt
+            expect(new Date(task.dueAt).getTime()).toEqual(pastDate.getTime());
+            expect(task.nextRunAt.getTime()).toBeGreaterThan(pastDate.getTime());
         });
     });
 
@@ -154,7 +155,8 @@ describe('Reactive Task Management', function () {
                 sourceDocId: id,
                 status: 'failed',
                 attempts: 5,
-                scheduledAt: new Date(),
+                scheduledAt: new Date(), // Wait, scheduledAt is gone? Yes. nextRunAt.
+                nextRunAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
             }));
@@ -197,7 +199,7 @@ describe('Reactive Task Management', function () {
                 sourceDocId: 'custom-id',
                 status: 'completed',
                 attempts: 1,
-                scheduledAt: new Date(),
+                nextRunAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
             } as any);
@@ -237,25 +239,25 @@ describe('Reactive Task Management', function () {
             await db.collection(tasksCollectionName).insertOne({
                 task: taskName,
                 sourceDocId: 't1-1',
-                scheduledAt: new Date('2024-01-01T10:00:00Z'),
+                nextRunAt: new Date('2024-01-01T10:00:00Z'),
                 status: 'pending',
             } as any);
 
             await db.collection(source2Name + '_tasks').insertOne({
                 task: task2Name,
                 sourceDocId: 't2-1',
-                scheduledAt: new Date('2024-01-01T09:00:00Z'), // Earlier
+                nextRunAt: new Date('2024-01-01T09:00:00Z'), // Earlier
                 status: 'pending',
             } as any);
 
             await db.collection(tasksCollectionName).insertOne({
                 task: taskName,
                 sourceDocId: 't1-2',
-                scheduledAt: new Date('2024-01-01T11:00:00Z'), // Later
+                nextRunAt: new Date('2024-01-01T11:00:00Z'), // Later
                 status: 'pending',
             } as any);
 
-            const res = await API.getReactiveTasks({ status: 'pending' }, { sort: { field: 'scheduledAt', direction: 1 } });
+            const res = await API.getReactiveTasks({ status: 'pending' }, { sort: { field: 'nextRunAt', direction: 1 } });
 
             expect(res.items).toHaveLength(3);
             expect(res.items[0].sourceDocId).toBe('t2-1');

@@ -407,7 +407,7 @@ describe('reactiveTasks', () => {
                 // Force expire the lock in the DB
                 await mongodash
                     .getCollection('recoveryTasks_tasks')
-                    .updateOne({ sourceDocId: _context.docId }, { $set: { lockExpiresAt: new Date(Date.now() - 1000) } } as any);
+                    .updateOne({ sourceDocId: _context.docId }, { $set: { nextRunAt: new Date(Date.now() - 1000) } } as any);
 
                 // Now block indefinitely
                 await taskBlockingPromise;

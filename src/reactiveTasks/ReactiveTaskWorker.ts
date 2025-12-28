@@ -1,5 +1,5 @@
 import * as _debug from 'debug';
-import { Collection, Document, Filter, FindOptions } from 'mongodb';
+import { Document, Filter, FindOptions } from 'mongodb';
 import { createContinuousLock } from '../createContinuousLock';
 import { defaultOnError, OnError } from '../OnError';
 import { defaultOnInfo, OnInfo } from '../OnInfo';
@@ -162,15 +162,7 @@ export class ReactiveTaskWorker {
             },
         };
 
-        const stopLock = createContinuousLock(
-            tasksCollection as unknown as Collection<{ _id: string; lockExpiresAt: Date | null }>,
-            taskRecord._id.toString(),
-            'lockExpiresAt',
-            this.internalOptions.visibilityTimeoutMs,
-            (error) => {
-                this.onError(error);
-            },
-        );
+        const stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs);
 
         const processTheTask = async () => {
             const start = Date.now();
