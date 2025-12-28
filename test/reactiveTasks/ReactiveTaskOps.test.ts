@@ -1,5 +1,5 @@
-import { ReactiveTaskOps } from '../../src/reactiveTasks/ReactiveTaskOps';
 import { Collection } from 'mongodb';
+import { ReactiveTaskOps } from '../../src/reactiveTasks/ReactiveTaskOps';
 
 describe('ReactiveTaskOps', () => {
     describe('generatePlanningPipeline', () => {
@@ -55,7 +55,8 @@ describe('ReactiveTaskOps', () => {
                 'attempts',
                 'createdAt',
                 'updatedAt',
-                'scheduledAt',
+                'nextRunAt',
+                'dueAt',
                 'resetRetriesOnDataChange',
             ];
 
@@ -65,8 +66,44 @@ describe('ReactiveTaskOps', () => {
             // Specific negative assertion for debounce
             expect(projectedKeys).not.toContain('debounce');
 
-            // Verify scheduledAt calculation
-            expect(projectStage.$project.scheduledAt).toEqual({ $add: ['$$NOW', '$tasks.debounceMs'] });
+            // Verify nextRunAt calculation
+            expect(projectStage.$project.nextRunAt).toEqual({ $add: ['$$NOW', '$tasks.debounceMs'] });
+            // Verify dueAt calculation
+            expect(projectStage.$project.dueAt).toEqual({ $add: ['$$NOW', '$tasks.debounceMs'] });
+        });
+    });
+
+    describe('dueAt calculation logic', () => {
+        it('should include correct dueAt update logic in pipeline', () => {
+            const mockRegistry: any = {
+                getEntry: () => ({
+                    sourceCollection: { collectionName: 'source_coll' } as Collection,
+                    tasksCollection: { collectionName: 'tasks_coll' } as Collection,
+                    tasks: new Map([['t1', { task: 't1', debounceMs: 1000, retryStrategy: { policy: {} } }]]),
+                }),
+            };
+            const ops = new ReactiveTaskOps(mockRegistry, jest.fn());
+            const pipeline = (ops as any).generatePlanningPipeline(mockRegistry.getEntry('source_coll'), {});
+
+            // Find the $merge stage
+            const mergeStage = pipeline.find((stage: any) => stage.$merge);
+            expect(mergeStage).toBeDefined();
+
+            // Find the $set stage within whenMatched
+            const setStage = mergeStage.$merge.whenMatched.find((stage: any) => stage.$set && stage.$set.dueAt);
+            expect(setStage).toBeDefined();
+
+            const dueAtLogic = setStage.$set.dueAt;
+            expect(dueAtLogic).toBeDefined();
+
+            // Structure: $cond: { if: '$hasChanged', then: { ... }, else: '$dueAt' }
+            expect(dueAtLogic.$cond.if).toBe('$hasChanged');
+            expect(dueAtLogic.$cond.else).toBe('$dueAt');
+
+            // Inner logic: Simplified - always reset if hasChanged
+            expect(dueAtLogic.$cond.if).toBe('$hasChanged');
+            expect(dueAtLogic.$cond.then).toBe('$$new.dueAt');
+            expect(dueAtLogic.$cond.else).toBe('$dueAt');
         });
     });
 });

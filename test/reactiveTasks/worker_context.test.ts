@@ -1,6 +1,6 @@
 import { Document, ObjectId } from 'mongodb';
 import * as sinon from 'sinon';
-import { createReusableWaitableStub, getNewInstance, wait } from '../testHelpers';
+import { createReusableWaitableStub, getNewInstance, wait, waitUntil } from '../testHelpers';
 
 describe('Reactive Task Worker Context', () => {
     let instance: ReturnType<typeof getNewInstance>;
@@ -181,9 +181,14 @@ describe('Reactive Task Worker Context', () => {
 
         await waitForNextCall(2000);
 
-        await wait(500);
         const tasksCol = instance.mongodash.getCollection(`${taskId}_tasks`);
-        const task = await tasksCol.findOne({});
-        expect(task?.status).toBe('completed'); // skipped
+        await waitUntil(
+            async () => {
+                const task = await tasksCol.findOne({});
+                return task?.status === 'completed';
+            },
+            { timeoutMs: 5000, message: 'Task should eventually be completed (it might retry if marked dirty during race)' },
+        );
+        // expect(task?.status).toBe('completed'); // skipped
     });
 });

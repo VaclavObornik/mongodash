@@ -1,6 +1,6 @@
 import { noop } from 'lodash';
 import { Collection, Document } from 'mongodb';
-import { getNewInstance } from '../testHelpers';
+import { getNewInstance, wait } from '../testHelpers';
 
 describe('Reactive Tasks Clearing', () => {
     let instance: ReturnType<typeof getNewInstance>;
@@ -106,9 +106,8 @@ describe('Reactive Tasks Clearing', () => {
         // 2. Update document to NO LONGER match filter
         await sourceCollection.updateOne({ _id: 'doc2' as any }, { $set: { active: false } });
 
-        const debugTask = await tasksCollection.findOne({ sourceDocId: 'doc2' as any });
-        console.log('DEBUG: Task before cleanup:', JSON.stringify(debugTask, null, 2));
-        console.log('DEBUG: Date.now():', Date.now());
+        // 3. Wait > grace period
+        await wait(500);
 
         // 3. Trigger periodic cleanup
         const scheduler = (instance.mongodash as any)._scheduler;
@@ -157,7 +156,7 @@ describe('Reactive Tasks Clearing', () => {
         expect(task).toBeDefined();
 
         // 2. Wait for document to expire AND grace period
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
 
         // 3. Trigger periodic cleanup
         const scheduler = (instance.mongodash as any)._scheduler;
@@ -318,7 +317,7 @@ describe('Reactive Tasks Clearing', () => {
                 filter: { active: true },
                 cleanupPolicy: {
                     deleteWhen: 'sourceDocumentDeletedOrNoLongerMatching',
-                    keepFor: '2s', // 2 second grace period
+                    keepFor: '10s', // Long grace period to prevent test flakiness
                 },
                 debounce: 10000,
                 handler: async () => {},

@@ -58,3 +58,20 @@ Every task record in the `_tasks` collection follows a specific lifecycle:
 
 
 
+
+## Task Schema
+
+Each reactive task is stored as a document in the `[collection]_tasks` collection. Key fields include:
+
+-   `task`: The task name.
+-   `sourceDocId`: The `_id` of the source document.
+-   `status`: Current state (`pending`, `processing`, `completed`, `failed`).
+-   `nextRunAt`: **Core Scheduling Field**.
+    -   For `pending` tasks: The time when the task is eligible to run (includes delays/backoff).
+    -   For `processing` tasks: The time when the processing lock expires (visibility timeout).
+    -   For `completed`/`failed` tasks: `null` (removed from the polling index).
+-   `dueAt` (formerly `initialScheduledAt`): The **Original Scheduled Time**.
+    -   This value is static and represents when the task *should* have run primarily.
+    -   It is used for calculating **Lag** metrics (SLA monitoring) and does not change during retries or backoffs.
+-   `attempts`: Number of execution attempts (including the first one).
+-   `lastError`: The error message from the last failure (if any).

@@ -65,12 +65,12 @@ describe('ReactiveTaskRepository', () => {
                 sourceDocId: doc._id,
                 status: 'pending',
                 attempts: 0,
-                scheduledAt: new Date(),
+                nextRunAt: new Date(),
+                dueAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 lastObservedValues: null,
                 lastError: null,
-                lockExpiresAt: null,
             }));
             await tasksCollection.insertMany(tasks as any);
 
@@ -111,12 +111,12 @@ describe('ReactiveTaskRepository', () => {
                 sourceDocId: doc._id,
                 status: 'pending',
                 attempts: 0,
-                scheduledAt: new Date(),
+                nextRunAt: new Date(),
+                dueAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 lastObservedValues: null,
                 lastError: null,
-                lockExpiresAt: null,
             } as any);
 
             // 2. Lock task (processing)
@@ -143,7 +143,7 @@ describe('ReactiveTaskRepository', () => {
             // if processing_dirty -> pending.
             // attempts: not touched in the $cond for processing_dirty?
             // Let's check finalizeTask implementation.
-            // It sets status, scheduledAt, completedAt, lockExpiresAt, lastError.
+            // It sets status, nextRunAt, completedAt, lastError.
             // It does NOT set attempts in the update.
             // So attempts remain as they were (which was incremented by findAndLockNextTask).
             // So it should be 1.
@@ -162,12 +162,12 @@ describe('ReactiveTaskRepository', () => {
                 sourceDocId: doc._id,
                 status: 'pending',
                 attempts: 0,
-                scheduledAt: new Date(),
+                nextRunAt: new Date(),
+                dueAt: new Date(),
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 lastObservedValues: null,
                 lastError: null,
-                lockExpiresAt: null,
             } as any);
 
             // 2. Lock task
@@ -185,12 +185,12 @@ describe('ReactiveTaskRepository', () => {
             expect(finalTask!.status).toBe('pending');
 
             const now = Date.now();
-            const scheduledAt = finalTask!.scheduledAt.getTime();
-            // scheduledAt should be updatedAt + debounce
+            const nextRunAt = finalTask!.nextRunAt!.getTime();
+            // nextRunAt should be updatedAt + debounce
             // updatedAt was set in step 3 (roughly now).
             // debounce is 100.
-            // So scheduledAt should be roughly now + 100.
-            expect(Math.abs(now + 100 - scheduledAt)).toBeLessThan(1000);
+            // So nextRunAt should be roughly now + 100.
+            expect(Math.abs(now + 100 - nextRunAt)).toBeLessThan(1000);
 
             // 6. Should be lockable again (after debounce)
             // We need to wait for debounce

@@ -37,27 +37,17 @@ export class ReactiveTaskRepository<T extends Document> {
 
     public async findAndLockNextTask(taskDefs: ReactiveTaskInternal<T>[], options: { visibilityTimeoutMs: number }): Promise<ReactiveTaskRecord<T> | null> {
         const now = new Date();
-        const lockExpiresAt = new Date(now.getTime() + options.visibilityTimeoutMs);
+        const nextRunAt = new Date(now.getTime() + options.visibilityTimeoutMs);
 
         const filter: Filter<ReactiveTaskRecord<T>> = {
             task: { $in: taskDefs.map((c) => c.task) },
-            $or: [
-                {
-                    status: { $in: ['pending', 'processing_dirty'] },
-                    scheduledAt: { $lte: now },
-                    $or: [{ lockExpiresAt: { $lt: now } }, { lockExpiresAt: { $exists: false } }, { lockExpiresAt: null }],
-                },
-                {
-                    status: 'processing',
-                    lockExpiresAt: { $lt: now },
-                },
-            ],
+            nextRunAt: { $lte: now, $type: 'date' },
         };
 
         const update: UpdateFilter<ReactiveTaskRecord<T>> = {
             $set: {
                 status: 'processing',
-                lockExpiresAt: lockExpiresAt,
+                nextRunAt: nextRunAt,
                 startedAt: now,
             },
             $inc: { attempts: 1 },
@@ -65,7 +55,7 @@ export class ReactiveTaskRepository<T extends Document> {
 
         try {
             const result = await this.tasksCollection.findOneAndUpdate(filter, update, {
-                sort: { scheduledAt: 1 },
+                sort: { nextRunAt: 1 },
                 returnDocument: 'after',
                 includeResultMetadata: true,
             } as CompatibleFindOneAndUpdateOptions);
@@ -116,11 +106,11 @@ export class ReactiveTaskRepository<T extends Document> {
                     else: isError ? (shouldFail ? 'failed' : 'pending') : 'completed',
                 },
             },
-            scheduledAt: {
+            nextRunAt: {
                 $cond: {
                     if: { $eq: ['$status', 'processing_dirty'] },
                     then: { $add: ['$updatedAt', debounceMs] },
-                    else: isError ? (shouldFail ? '$scheduledAt' : nextRetryScheduledAt) : '$scheduledAt',
+                    else: isError ? (shouldFail ? null : nextRetryScheduledAt) : null,
                 },
             },
             completedAt: {
@@ -130,7 +120,6 @@ export class ReactiveTaskRepository<T extends Document> {
                     else: isError ? '$completedAt' : new Date(),
                 },
             },
-            lockExpiresAt: null,
             firstErrorAt: {
                 $cond: {
                     if: { $eq: ['$status', 'processing_dirty'] },
@@ -188,17 +177,20 @@ export class ReactiveTaskRepository<T extends Document> {
 
     public async deferTask(taskRecord: ReactiveTaskRecord<T>, delay: number | Date): Promise<void> {
         const now = Date.now();
-        const newScheduledAt = typeof delay === 'number' ? new Date(now + delay) : delay;
-        const originalScheduledAt = taskRecord.initialScheduledAt ?? taskRecord.scheduledAt;
+        const nextRunAt = typeof delay === 'number' ? new Date(now + delay) : delay;
+        // Keeping dueAt unchanged (it shouldn't change on deferral if we want to track original intent,
+        // but if we want 'lag' to be reset, we would update it.
+        // Based on plan: "Never changes" -> so we don't update dueAt here.
+        // Wait, if we defer, we are explicitly saying "don't run yet".
+        // In clean slate, dueAt is set at creation and never changes (unless strictly needed for lag reset).
 
         await this.tasksCollection.updateOne(
             { _id: taskRecord._id },
             {
                 $set: {
                     status: 'pending',
-                    scheduledAt: newScheduledAt,
-                    initialScheduledAt: originalScheduledAt,
-                    lockExpiresAt: null,
+                    nextRunAt: nextRunAt,
+                    // dueAt: not changed
                     attempts: 0,
                 },
             },
@@ -246,15 +238,18 @@ export class ReactiveTaskRepository<T extends Document> {
                             else: 'pending',
                         },
                     },
-                    scheduledAt: {
+                    nextRunAt: {
+                        // If it was processing, keep it running (don't break lock) - wait, resetTasks usually implies "fix stuff".
+                        // Logic: if processing/dirty -> keep nextRunAt (lock), else -> $$NOW.
+                        // If we reset a stuck task, we want it to run NOW.
+                        // If we reset a completed/failed task, we want it to run NOW.
                         $cond: {
                             if: { $in: ['$status', ['processing', 'processing_dirty']] },
-                            then: '$scheduledAt',
-                            else: '$$NOW',
+                            then: '$nextRunAt', // Keep current timeout
+                            else: '$$NOW', // Run immediately
                         },
                     },
-                    // Preserve history - don't reset attempts, firstErrorAt, or lastError
-                    initialScheduledAt: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] },
+                    // Preserve dueAt
                 },
             },
         ];
@@ -282,14 +277,20 @@ export class ReactiveTaskRepository<T extends Document> {
 
     private async ensureIndexes(): Promise<void> {
         // Optimized index for findAndLockNextTask (ESR Rule Compliance)
-        // 1. Equality: task (since we query by IN loop usually, and it's always equality context)
-        // 2. Status: status is next
-        await this.tasksCollection.createIndex({
-            task: 1,
-            status: 1,
-            scheduledAt: 1,
-            lockExpiresAt: 1,
-        });
+        // 1. Equality: task (via $in)
+        // 2. Sort: nextRunAt
+        // 3. Range: nextRunAt ($lte)
+        // Partial Index: only index tasks that are eligible to run (nextRunAt != null)
+        await this.tasksCollection.createIndex(
+            {
+                task: 1,
+                nextRunAt: 1,
+            },
+            {
+                partialFilterExpression: { nextRunAt: { $type: 'date' } },
+                name: 'polling_idx',
+            },
+        );
 
         // Unique index to ensure one task per task definition per source document
         await this.tasksCollection.createIndex({ sourceDocId: 1, task: 1 }, { unique: true });
@@ -317,7 +318,12 @@ export class ReactiveTaskRepository<T extends Document> {
         const matchStage: Document = {
             task: taskName,
             $expr: {
-                $lt: [{ $max: ['$updatedAt', { $ifNull: ['$lastFinalizedAt', '$createdAt'] }] }, cutoffDate],
+                $lt: [
+                    {
+                        $max: ['$updatedAt', { $ifNull: ['$lastFinalizedAt', '$createdAt'] }],
+                    },
+                    cutoffDate,
+                ],
             },
         };
 
@@ -329,38 +335,41 @@ export class ReactiveTaskRepository<T extends Document> {
             {
                 $match: matchStage,
             },
+        ];
+
+        // We need to determine if the source document is "gone" or "no longer matching".
+        // Strategy:
+        // 1. If deleteWhen === 'sourceDocumentDeleted', we just check if document exists by ID.
+        // 2. If deleteWhen === 'sourceDocumentDeletedOrNoLongerMatching', we check if document exists AND matches filter.
+
+        const lookupPipeline: Document[] = [{ $match: { $expr: { $eq: ['$_id', '$$sId'] } } }];
+
+        if (deleteWhen === 'sourceDocumentDeletedOrNoLongerMatching' && Object.keys(taskFilter).length > 0) {
+            // taskFilter (normalized) is an Expression body. Must wrap in $expr for $match.
+            lookupPipeline.push({ $match: { $expr: taskFilter } });
+        }
+
+        pipeline.push(
             {
                 $lookup: {
                     from: sourceCollectionName,
                     let: { sId: '$sourceDocId' },
-                    pipeline: [
-                        { $match: { $expr: { $eq: ['$_id', '$$sId'] } } },
-                        {
-                            $project: {
-                                _id: 0,
-                                matches: Object.keys(taskFilter).length > 0 ? taskFilter : true,
-                            },
-                        },
-                    ],
+                    pipeline: lookupPipeline,
                     as: 'orphanCheck',
                 },
             },
             {
                 $match: {
-                    $or: [
-                        { orphanCheck: { $size: 0 } }, // Source document deleted
-                        ...(deleteWhen === 'sourceDocumentDeletedOrNoLongerMatching'
-                            ? [{ 'orphanCheck.matches': false }] // Filter no longer matches
-                            : []),
-                    ],
+                    'orphanCheck.0': { $exists: false }, // If empty, it means it was deleted OR didn't match filter
                 },
             },
             {
                 $project: {
                     _id: 1,
+                    orphanCheck: 1,
                 },
             },
-        ];
+        );
 
         await processInBatches(
             this.tasksCollection,
@@ -402,10 +411,7 @@ export class ReactiveTaskRepository<T extends Document> {
         }
 
         if (options.includeGlobalLag) {
-            facets.globalLag = [
-                { $match: { status: 'pending' } },
-                { $group: { _id: '$task', minScheduledAt: { $min: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] } } } },
-            ];
+            facets.globalLag = [{ $match: { status: 'pending' } }, { $group: { _id: '$task', minScheduledAt: { $min: '$dueAt' } } }];
         }
 
         pipeline.push({ $facet: facets });

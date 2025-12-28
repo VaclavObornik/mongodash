@@ -11,7 +11,7 @@ export class ReactiveTaskManager {
 
         const limit = pagination.limit ?? 50;
         const offset = pagination.skip ?? 0;
-        const sortField = pagination.sort?.field ?? 'scheduledAt';
+        const sortField = pagination.sort?.field ?? 'nextRunAt';
         const sortDirection = pagination.sort?.direction ?? 1;
         const sort = { [sortField]: sortDirection } as Record<string, 1 | -1>;
 

@@ -1,7 +1,7 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import { ObjectId } from 'mongodb';
-import { getNewInstance } from '../testHelpers';
 import { ReactiveTaskHandler } from '../../src/reactiveTasks/ReactiveTaskTypes';
-import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from '@jest/globals';
+import { getNewInstance } from '../testHelpers';
 
 const COLLECTION_NAME = 'test_flow_control_docs';
 const TASK_NAME_DEFER = 'test_defer_flow';
@@ -148,7 +148,7 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
             db,
             TASK_NAME_DEFER,
             tasksCollection,
-            (task) => task.status === 'pending' && task.scheduledAt.getTime() >= start + 500,
+            (task) => task.status === 'pending' && task.nextRunAt.getTime() >= start + 500,
         );
 
         // At this point we know the task matches the predicate (pending and deferred)
@@ -159,10 +159,10 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
         expect(taskAfterDefer.status).toBe('pending');
         expect(taskAfterDefer.attempts).toBe(0); // attempts not incremented
 
-        // Check scheduledAt is in future relative to start
+        // Check nextRunAt is in future relative to start
         // deferred by 1000ms.
-        // scheduledAt should be close to start + 1000.
-        expect(taskAfterDefer.scheduledAt.getTime()).toBeGreaterThanOrEqual(start + 500);
+        // nextRunAt should be close to start + 1000.
+        expect(taskAfterDefer.nextRunAt.getTime()).toBeGreaterThanOrEqual(start + 500);
 
         // Wait until deferred time passes (1000ms deferred)
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -184,7 +184,7 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
         const start = Date.now();
         while (Date.now() - start < 10000) {
             const task = await db.collection(tasksCollectionName).findOne({ task: taskName });
-            if (task && task.initialScheduledAt) return task;
+            if (task && task.dueAt) return task;
             await new Promise((resolve) => setTimeout(resolve, 200));
         }
         throw new Error(`Timeout waiting for deferral of task ${taskName} in ${tasksCollectionName}`);
@@ -203,12 +203,12 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
         // Status should be pending because deferOne resets it to pending
         expect(taskAfterDefer.status).toBe('pending');
 
-        // scheduledAt should be approx start + 1000 (Date.now() + 1000 in worker)
-        expect(taskAfterDefer.scheduledAt.getTime()).toBeGreaterThanOrEqual(start + 500);
+        // nextRunAt should be approx start + 1000 (Date.now() + 1000 in worker)
+        expect(taskAfterDefer.nextRunAt.getTime()).toBeGreaterThanOrEqual(start + 500);
         expect(taskAfterDefer.attempts).toBe(0);
-        expect(taskAfterDefer.initialScheduledAt).toBeDefined();
-        // scheduledAt should be in the future
-        expect(taskAfterDefer.scheduledAt.getTime()).toBeGreaterThan(Date.now());
+        expect(taskAfterDefer.dueAt).toBeDefined();
+        // nextRunAt should be in the future
+        expect(taskAfterDefer.nextRunAt.getTime()).toBeGreaterThan(Date.now());
 
         // Wait until deferred time passes (1000ms deferred)
         // Ensure we wait enough time for worker to pick it up
@@ -297,12 +297,7 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
             $or: [
                 {
                     status: { $in: ['pending', 'processing_dirty'] },
-                    scheduledAt: { $lte: new Date() },
-                    $or: [{ lockExpiresAt: { $lt: new Date() } }, { lockExpiresAt: { $exists: false } }, { lockExpiresAt: null }],
-                },
-                {
-                    status: 'processing',
-                    lockExpiresAt: { $lt: new Date() },
+                    nextRunAt: { $lte: new Date(), $type: 'date' },
                 },
             ],
         };
@@ -311,7 +306,7 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
         // Ensure index exists (init created it)
         const explain = await db
             .collection(COLLECTION_NAME + '_defer_tasks')
-            .find(query, { sort: { scheduledAt: 1 } })
+            .find(query, { sort: { nextRunAt: 1 } })
             .explain();
 
         const winningPlan = (explain as any).queryPlanner?.winningPlan;

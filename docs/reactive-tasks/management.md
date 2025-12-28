@@ -24,7 +24,7 @@ const failedTasks = await getReactiveTasks({
 // list with pagination
 const page1 = await getReactiveTasks(
     { task: 'send-welcome-email' }, 
-    { limit: 50, skip: 0, sort: { scheduledAt: -1 } }
+    { limit: 50, skip: 0, sort: { nextRunAt: -1 } }
 );
 
 // Advanced: Helper to find task by properties of the SOURCE document

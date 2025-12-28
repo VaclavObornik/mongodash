@@ -61,7 +61,7 @@ export class OperationalTaskController {
             this.scheduler.getTaskManager().getTasks(query, {
                 limit: Number(params.limit || 50),
                 skip: Number(params.skip || 0),
-                sort: { field: 'scheduledAt', direction: 1 },
+                sort: { field: 'nextRunAt', direction: 1 },
             }),
             this.scheduler.getTaskManager().getTaskStats(statsQuery),
         ]);

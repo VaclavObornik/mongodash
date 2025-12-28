@@ -136,6 +136,10 @@ export class ReactiveTaskScheduler {
             this.internalOptions.getNextCleanupDate = createIntervalFunction(options.reactiveTaskCleanupInterval);
         }
 
+        if (options.visibilityTimeoutMs !== undefined) {
+            this.internalOptions.visibilityTimeoutMs = options.visibilityTimeoutMs;
+        }
+
         this.options = { ...this.options, ...options };
         this.concurrentRunner = new ConcurrentRunner({ concurrency: this.options.reactiveTaskConcurrency }, onError);
         this.registry.setCallbacks(onInfo, onError);

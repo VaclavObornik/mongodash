@@ -94,7 +94,8 @@ export class ReactiveTaskOps {
                     attempts: { $literal: 0 },
                     createdAt: '$$NOW',
                     updatedAt: '$$NOW',
-                    scheduledAt: { $add: ['$$NOW', '$tasks.debounceMs'] },
+                    nextRunAt: { $add: ['$$NOW', '$tasks.debounceMs'] },
+                    dueAt: { $add: ['$$NOW', '$tasks.debounceMs'] },
                     resetRetriesOnDataChange: { $ifNull: ['$tasks.resetRetriesOnDataChange', true] },
                 },
             },
@@ -156,17 +157,24 @@ export class ReactiveTaskOps {
                                         else: '$status',
                                     },
                                 },
-                                scheduledAt: {
+                                dueAt: {
+                                    $cond: {
+                                        if: '$hasChanged',
+                                        then: '$$new.dueAt', // Always reset dueAt for the new version
+                                        else: '$dueAt',
+                                    },
+                                },
+                                nextRunAt: {
                                     $cond: {
                                         if: '$hasChanged',
                                         then: {
                                             $cond: {
                                                 if: { $in: ['$status', ['processing', 'processing_dirty']] },
-                                                then: '$scheduledAt',
-                                                else: '$$new.scheduledAt',
+                                                then: '$nextRunAt',
+                                                else: '$$new.nextRunAt',
                                             },
                                         },
-                                        else: '$scheduledAt',
+                                        else: '$nextRunAt',
                                     },
                                 },
                                 attempts: {
