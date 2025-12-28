@@ -344,6 +344,14 @@ onMounted(() => {
         </div>
         <div class="modal-body">
           <p>Are you sure you want to retry all tasks matching the current filter?</p>
+          <div class="filter-summary" style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 13px; border: 1px solid #e2e8f0;">
+             <div v-if="filters.task"><strong>Task:</strong> {{ filters.task }}</div>
+             <div v-if="filters.collection"><strong>Collection:</strong> {{ filters.collection }}</div>
+             <div v-if="filters.statuses.length"><strong>Statuses:</strong> {{ filters.statuses.join(', ') }}</div>
+             <div v-if="filters.sourceDocId"><strong>Source IDs:</strong> {{ filters.sourceDocId }}</div>
+             <div v-if="filters.errorMessage"><strong>Error Message:</strong> "{{ filters.errorMessage }}"</div>
+             <div v-if="filters.hasError"><strong>Has Error:</strong> Yes</div>
+          </div>
           <div class="modal-actions" style="display:flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
             <button class="btn btn-secondary" @click="showRetryModal = false">Cancel</button>
             <button class="btn btn-danger" @click="confirmRetryTasks">Retry now</button>

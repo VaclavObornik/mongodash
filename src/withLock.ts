@@ -4,15 +4,14 @@
 import { Collection, MongoError, ObjectId } from 'mongodb';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
-import { OnError } from './OnError';
 
 // const debug = _debug('mongodash:withLock');
 
-let onError: OnError;
+import { onError } from './OnError';
 
-export function init(options: { onError: OnError }): void {
-    onError = options.onError;
-}
+// const debug = _debug('mongodash:withLock');
+
+// init function removed
 
 export type LockKey = string | number | ObjectId;
 
@@ -45,6 +44,12 @@ async function getLockerCollection() {
     return collectionPromise;
 }
 
+export function reset(): void {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    collectionPromise = null;
+}
+
 export class LockAlreadyAcquiredError extends Error {
     constructor(public readonly key: LockKey) {
         super(lockAcquiredMessage);
@@ -59,11 +64,12 @@ export function isLockAlreadyAcquiredError(err: unknown, key?: LockKey): boolean
     return key ? err.key === key : true;
 }
 
-export async function withLock<T>(
-    key: LockKey,
-    callback: LockCallback<T>,
-    { maxWaitForLock = 3 * 1000, startingDelay = 50, expireIn = 15 * 1000 }: WithLockOptions = {},
-): Promise<T> {
+export async function withLock<T>(key: LockKey, callback: LockCallback<T>, options?: WithLockOptions): Promise<T> {
+    const _options = options ?? {};
+    const maxWaitForLock = _options.maxWaitForLock ?? 3 * 1000;
+    const startingDelay = _options.startingDelay ?? 50;
+    const expireIn = _options.expireIn ?? 15 * 1000;
+
     const lockId = new ObjectId();
     const stringKey = `${key}`;
     const maxDate = new Date(Date.now() + maxWaitForLock);

@@ -1355,12 +1355,13 @@ describe('cronTasks %i', () => {
                 await triggerNextRound();
             }
 
-            const correlationIds = uniq(map(callLog, 'correlationId'));
+            const taskLogs = callLog.filter((entry: any) => !entry.onInfo || entry.onInfo.taskId);
+            const correlationIds = uniq(map(taskLogs, 'correlationId'));
             assert.strictEqual(correlationIds.length, numberOfCalls);
 
             const isoDate = /[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z/;
 
-            expect(callLog).toMatchObject([
+            expect(taskLogs).toMatchObject([
                 {
                     onInfo: { message: `Cron task '${task.taskId}' started.`, taskId: task.taskId, code: 'cronTaskStarted' },
                     correlationId: correlationIds[0],

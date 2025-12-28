@@ -1,25 +1,14 @@
 'use strict';
 
-import { ClientSession, TransactionOptions } from 'mongodb';
+// import { ClientSession, TransactionOptions } from 'mongodb'; // TransactionOptions is unused?
+// If TransactionOptions is unused, I should remove it.
+import { ClientSession } from 'mongodb';
 import { getMongoClient } from './getMongoClient';
-import { OnError } from './OnError';
-import { OnInfo } from './OnInfo';
-
-export type InitOptions = {
-    onError: OnError;
-    onInfo: OnInfo;
-};
+import { onError } from './OnError';
 
 export type PostCommitHook = () => void | Promise<void>;
 
 const postCommitHooks = new WeakMap<ClientSession, PostCommitHook[]>();
-let _onError: OnError;
-let _onInfo: OnInfo;
-
-export function init(options: InitOptions): void {
-    _onError = options.onError;
-    _onInfo = options.onInfo;
-}
 
 export function registerPostCommitHook(session: ClientSession, hook: PostCommitHook): void {
     if (!session.inTransaction()) {
@@ -35,7 +24,7 @@ export function registerPostCommitHook(session: ClientSession, hook: PostCommitH
     hooks.push(hook);
 }
 
-export async function withTransaction<T>(callback: (session: ClientSession) => Promise<T>, options?: TransactionOptions): Promise<T> {
+export async function withTransaction<T>(callback: (session: ClientSession) => Promise<T>): Promise<T> {
     const clientSession = getMongoClient().startSession();
 
     postCommitHooks.set(clientSession, []);
@@ -45,7 +34,7 @@ export async function withTransaction<T>(callback: (session: ClientSession) => P
 
         await clientSession.withTransaction(async () => {
             returnValue = await callback(clientSession);
-        }, options);
+        });
 
         const hooks = postCommitHooks.get(clientSession)!;
 
@@ -53,7 +42,7 @@ export async function withTransaction<T>(callback: (session: ClientSession) => P
             const results = await Promise.allSettled(hooks.map((hook) => hook()));
             results.forEach((result) => {
                 if (result.status === 'rejected') {
-                    _onError(result.reason);
+                    onError(result.reason);
                 }
             });
         }

@@ -4,8 +4,6 @@ import type { Registry } from 'prom-client';
 import { ConcurrentRunner } from '../ConcurrentRunner';
 import { GlobalsCollection } from '../globalsCollection';
 import { initPromise } from '../initPromise';
-import { defaultOnError, OnError } from '../OnError';
-import { defaultOnInfo, OnInfo } from '../OnInfo';
 import { createIntervalFunction } from '../parseInterval';
 import { LeaderElector } from './LeaderElector';
 import { MetricsCollector } from './MetricsCollector';
@@ -54,14 +52,13 @@ export {
 } from './ReactiveTaskTypes';
 export { scheduler as _scheduler };
 
+import { onError } from '../OnError';
+import { onInfo } from '../OnInfo';
+
 export type InitOptions = {
-    onError: OnError;
-    onInfo: OnInfo;
     globalsCollection: GlobalsCollection;
 } & Partial<ReactiveTaskSchedulerOptions>;
 
-let onError: OnError = defaultOnError;
-let onInfo: OnInfo = defaultOnInfo;
 let globalsCollection: GlobalsCollection;
 
 /**
@@ -142,7 +139,7 @@ export class ReactiveTaskScheduler {
         this.options = { ...this.options, ...options };
         this.concurrentRunner = new ConcurrentRunner({ concurrency: this.options.reactiveTaskConcurrency }, onError);
         this.registry.setCallbacks(onInfo, onError);
-        debug(`[Scheduler ${this.instanceId}] Configured. onInfo is ${onInfo === defaultOnInfo ? 'DEFAULT' : 'CUSTOM'}`);
+        debug(`[Scheduler ${this.instanceId}] Configured.`);
     }
 
     public async addTask(taskDef: ReactiveTask<Document>): Promise<void> {
@@ -327,9 +324,7 @@ const scheduler = new ReactiveTaskScheduler();
 // --- PUBLIC INITIALIZATION FUNCTION ---
 
 export function init(initOptions: InitOptions): void {
-    const { onError: _onError, onInfo: _onInfo, globalsCollection: _globalsCollection, ...schedulerOptions } = initOptions;
-    onError = _onError;
-    onInfo = _onInfo;
+    const { globalsCollection: _globalsCollection, ...schedulerOptions } = initOptions;
     globalsCollection = _globalsCollection;
 
     scheduler.configure(schedulerOptions);
