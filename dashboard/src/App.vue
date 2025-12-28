@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import logoUrl from './assets/logo.png'
 import { refreshState, setAutoRefresh, setTimezone, setLocale, fetchInfo } from './store'
 import LiveTimeAgo from './components/LiveTimeAgo.vue'
 
@@ -79,7 +78,7 @@ const route = useRoute()
     <header>
       <div class="header-row">
         <div class="header-title">
-          <img :src="logoUrl" alt="Mongodash Logo" class="logo" />
+          <!-- Logo removed as per user request -->
           <h1>
             Task Management
             <span v-if="refreshState.databaseName.value" class="title-separator">:</span>

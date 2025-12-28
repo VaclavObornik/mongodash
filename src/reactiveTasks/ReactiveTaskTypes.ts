@@ -356,6 +356,7 @@ export const CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR = 'reactiveTaskPlannerStrea
 export const CODE_REACTIVE_TASK_LEADER_LOCK_LOST = 'reactiveTaskLeaderLockLost';
 export const CODE_REACTIVE_TASK_INITIALIZED = 'reactiveTaskInitialized';
 export const CODE_REACTIVE_TASK_CLEANUP = 'reactiveTaskCleanup';
+export const CODE_MANUAL_TRIGGER = 'manualTrigger';
 export const REACTIVE_TASK_META_DOC_ID = '_mongodash_planner_meta';
 
 /**

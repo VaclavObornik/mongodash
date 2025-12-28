@@ -1,16 +1,24 @@
-import { init as initCronTasks, InitOptions as CronTasksInitOptions } from './cronTasks';
-import { init as initReactiveTasks, InitOptions as ReactiveTasksInitOptions } from './reactiveTasks';
-import { getCollection, init as initGetCollection, InitOptions as GetCollectionInitOptions } from './getCollection';
-import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } from './getMongoClient';
-import { defaultOnError, OnError, secureOnError } from './OnError';
-import { defaultOnInfo, OnInfo, secureOnInfo } from './OnInfo';
-import { init as withLockInit } from './withLock';
-import { init as initWithTransaction } from './withTransaction';
-import { resolveInitPromise } from './initPromise';
 import { Collection } from 'mongodb';
+import { init as initCronTasks, InitOptions as CronTasksInitOptions } from './cronTasks';
+import { getCollection, init as initGetCollection, InitOptions as GetCollectionInitOptions, reset as getCollectionReset } from './getCollection';
+import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } from './getMongoClient';
 import { GlobalsCollection } from './globalsCollection';
+import { resolveInitPromise } from './initPromise';
+import { defaultOnError, OnError, setGlobalOnError } from './OnError';
+import { defaultOnInfo, OnInfo, setGlobalOnInfo } from './OnInfo';
+import { init as initReactiveTasks, InitOptions as ReactiveTasksInitOptions } from './reactiveTasks';
+import { reset as withLockReset } from './withLock';
 export {
+    CODE_CRON_TASK_FAILED,
+    CODE_CRON_TASK_FINISHED,
+    CODE_CRON_TASK_SCHEDULED,
+    CODE_CRON_TASK_STARTED,
+    CronPagedResult,
     cronTask,
+    CronTaskQuery,
+    CronTaskRecord,
+    CronTaskStatus,
+    getCronTasksList,
     Interval,
     runCronTask,
     scheduleCronTaskImmediately,
@@ -18,46 +26,37 @@ export {
     stopCronTasks,
     TaskFunction,
     TaskId,
-    CODE_CRON_TASK_STARTED,
-    CODE_CRON_TASK_FINISHED,
-    CODE_CRON_TASK_SCHEDULED,
-    CODE_CRON_TASK_FAILED,
-    getCronTasksList,
     triggerCronTask,
-    CronTaskQuery,
-    CronPagedResult,
-    CronTaskRecord,
-    CronTaskStatus,
 } from './cronTasks';
 export { getCollection } from './getCollection';
 export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
-export { withLock, isLockAlreadyAcquiredError, WithLockOptions, LockAlreadyAcquiredError } from './withLock';
-export { withTransaction, registerPostCommitHook, PostCommitHook } from './withTransaction';
+export { processInBatches, ProcessInBatchesOptions, ProcessInBatchesResult } from './processInBatches';
 export {
+    CODE_REACTIVE_TASK_FAILED,
+    CODE_REACTIVE_TASK_FINISHED,
+    CODE_REACTIVE_TASK_LEADER_LOCK_LOST,
+    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED,
+    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STOPPED,
+    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
+    CODE_REACTIVE_TASK_STARTED,
+    countReactiveTasks,
+    getPrometheusMetrics,
+    getReactiveTasks,
     reactiveTask,
     ReactiveTask,
     ReactiveTaskHandler,
-    TaskConditionFailedError,
+    retryReactiveTasks,
     startReactiveTasks,
     stopReactiveTasks,
-    getPrometheusMetrics,
+    TaskConditionFailedError,
     _scheduler,
-    CODE_REACTIVE_TASK_STARTED,
-    CODE_REACTIVE_TASK_FINISHED,
-    CODE_REACTIVE_TASK_FAILED,
-    CODE_REACTIVE_TASK_PLANNER_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_STOPPED,
-    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED,
-    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
-    CODE_REACTIVE_TASK_LEADER_LOCK_LOST,
-    getReactiveTasks,
-    countReactiveTasks,
-    retryReactiveTasks,
 } from './reactiveTasks';
-export { processInBatches, ProcessInBatchesOptions, ProcessInBatchesResult } from './processInBatches';
-export { serveDashboard, OperationalTaskController } from './task-management';
+export { OperationalTaskController, serveDashboard } from './task-management';
+export { isLockAlreadyAcquiredError, LockAlreadyAcquiredError, withLock, WithLockOptions } from './withLock';
+export { PostCommitHook, registerPostCommitHook, withTransaction } from './withTransaction';
 
 let initCalled = false;
 
@@ -85,12 +84,21 @@ export async function init(options: InitOptions): Promise<void> {
     }
     initCalled = true;
 
-    const onError = options.onError ? secureOnError(options.onError) : defaultOnError;
-    const onInfo = options.onInfo ? secureOnInfo(options.onInfo) : defaultOnInfo;
+    // effective default handling is inside setters (or logic below)
+    // Actually, secureWrap is handled in setters now.
+    setGlobalOnError(options.onError || defaultOnError);
+    setGlobalOnInfo(options.onInfo || defaultOnInfo);
+
+    // We still need local variables for some init functions that expect them?
+    // Or we refactor init functions too? Plan says "refactor consumers".
+    // For now, let's keep passing `onError` variables but initialized from globals?
+    // NO, the plan says "remove passing if feasible".
+
     const taskCaller = options.taskCaller || ((task) => task());
 
     await initMongoClient(options);
 
+    getCollectionReset(); // Ensure clean state
     initGetCollection({ collectionFactory: options.collectionFactory ?? null });
 
     let globalsCollection: GlobalsCollection;
@@ -100,24 +108,17 @@ export async function init(options: InitOptions): Promise<void> {
         globalsCollection = options.globalsCollection as unknown as GlobalsCollection;
     }
 
-    withLockInit({ onError });
-
-    initWithTransaction({ onError, onInfo });
+    withLockReset();
 
     initCronTasks({
         runCronTasks: options.runCronTasks ?? true,
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
-        onError,
-        onInfo,
         cronTaskCaller: options.cronTaskCaller ?? taskCaller,
         cronTaskFilter: options.cronTaskFilter ?? (() => true),
     });
-
     initReactiveTasks({
         ...options,
         globalsCollection: globalsCollection,
-        onError,
-        onInfo,
         reactiveTaskCaller: options.reactiveTaskCaller ?? taskCaller,
     });
 

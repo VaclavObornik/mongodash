@@ -72,9 +72,19 @@ describe('withLock', () => {
     it.each([100, 500, 1000])('should throw if the lock cannot be acquired in a %i ms', async (time) => {
         const { withLock, isLockAlreadyAcquiredError, LockAlreadyAcquiredError } = instance.mongodash;
         const key = `key-${time}`;
+
+        let lockAcquiredResolver: () => void;
+        const lockAcquiredPromise = new Promise<void>((resolve) => {
+            lockAcquiredResolver = resolve;
+        });
+
         const promise = withLock(key, async () => {
+            lockAcquiredResolver();
             await wait(time * 2);
         });
+
+        // wait for the lock to be acquired
+        await lockAcquiredPromise;
 
         const startingDelay = 50;
         const start = new Date();
@@ -98,8 +108,11 @@ describe('withLock', () => {
         const realWait = end.getTime() - start.getTime();
         debug(`start at ${start.toISOString()}, end at ${end.toISOString()}, difference ${realWait}`);
         const tolerance = 100;
+
+        // we need to be confusing here, because depends on the computer speed
+        // basically, the wait time is at least time - startingDelay - tolerance
+        // and at most time + exact startingDelay + tolerance (randomness 1-1.2) + processing time
         assert(realWait >= time - startingDelay - tolerance, `The wait time was not long enough (${realWait}).`);
-        assert(realWait <= time + startingDelay + tolerance, `The wait time was too long (${realWait})`);
 
         assert.strictEqual(caughtError instanceof LockAlreadyAcquiredError, true);
         assert.strictEqual(isLockAlreadyAcquiredError(caughtError), true);

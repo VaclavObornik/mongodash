@@ -22,6 +22,10 @@ export function init(options: InitOptions): void {
     collectionFactory = options.collectionFactory;
 }
 
+export function reset(): void {
+    collectionFactory = null;
+}
+
 let depthCallCounter = 0;
 
 export function getCollection<T extends Document>(name: string): Collection<T> {

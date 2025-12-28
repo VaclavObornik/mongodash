@@ -5,9 +5,37 @@ import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { initPromise } from './initPromise';
 import { CompatibleFindOneAndUpdateOptions, CompatibleModifyResult } from './mongoCompatibility';
-import { OnError } from './OnError';
-import { OnInfo } from './OnInfo';
+import { onError } from './OnError';
+import { onInfo } from './OnInfo';
 import { createIntervalFunction } from './parseInterval';
+
+export interface InitOptions {
+    runCronTasks: boolean;
+    cronExpressionParserOptions: CronExpressionOptions;
+    cronTaskCaller: CronTaskCaller;
+    cronTaskFilter: CronTaskFilter;
+}
+
+export function init(options: InitOptions): void {
+    if (state.working) {
+        throw new Error('Cron tasks are already running');
+    }
+
+    state.runCronTasks = options.runCronTasks;
+    if (options.cronExpressionParserOptions.endDate) {
+        throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
+    }
+    state.cronExpressionParserOptions = options.cronExpressionParserOptions;
+    state.cronTaskCaller = options.cronTaskCaller;
+    state.cronTaskFilter = options.cronTaskFilter;
+
+    if (state.runCronTasks) {
+        onInfo({ message: 'Cron tasks processing started', code: CODE_CRON_TASK_STARTED });
+        if (state.tasks.size) {
+            ensureStarted();
+        }
+    }
+}
 
 export const CODE_CRON_TASK_STARTED = 'cronTaskStarted';
 export const CODE_CRON_TASK_FINISHED = 'cronTaskFinished';
@@ -101,11 +129,13 @@ const state = {
 
     enforcedTasks: <Array<EnforcedTask>>[],
 
-    shouldRun: true,
-
     ensureIndexPromise: <Promise<unknown> | null>null,
 
+    // Config
+    runCronTasks: false,
     cronExpressionParserOptions: <CronExpressionOptions>{},
+    cronTaskCaller: <CronTaskCaller | null>null,
+    cronTaskFilter: <CronTaskFilter | null>null,
 };
 
 export interface CronTaskCaller {
@@ -116,10 +146,11 @@ export interface CronTaskFilter {
     ({ taskId }: { taskId: TaskId }): boolean;
 }
 
-let taskCaller: CronTaskCaller;
-let taskFilter: CronTaskFilter;
-let onError: OnError;
-let onInfo: OnInfo;
+// Removed module-level vars that are now in state or imported
+// let taskCaller: CronTaskCaller;
+// let taskFilter: CronTaskFilter;
+// let onError: OnError;
+// let onInfo: OnInfo;
 
 function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date {
     return createIntervalFunction(interval, { cronOptions: state.cronExpressionParserOptions });
@@ -174,7 +205,7 @@ function getUnlockedFilter() {
 
 function getTasksToProcessFilter() {
     return {
-        $and: [{ _id: { $in: Array.from(state.tasks.keys()).filter((taskId) => taskFilter({ taskId })) } }, getUnlockedFilter()],
+        $and: [{ _id: { $in: Array.from(state.tasks.keys()).filter((taskId) => state.cronTaskFilter!({ taskId })) } }, getUnlockedFilter()],
     };
 }
 
@@ -227,7 +258,7 @@ async function findATaskToRun(enforcedTask: EnforcedTask | null): Promise<Task |
         return null;
     }
 
-    if (!enforcedTask && !state.shouldRun) {
+    if (!enforcedTask && !state.runCronTasks) {
         // the stopCronTasks has been called during finding a task, rollback the lock
         // we update runImmediately back only if it was truthy before
         const runImmediatelyUpdate = document.runImmediately ? { runImmediately: true } : null;
@@ -315,7 +346,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     };
 
     try {
-        await taskCaller(processTheTask);
+        await state.cronTaskCaller!(processTheTask);
     } catch (err) {
         // todo revise why we need to do this
         // this should fix situations when the _taskCaller has a problem
@@ -370,7 +401,7 @@ function runATask(): void {
                 onError(error as Error);
             }
         } finally {
-            const shouldTriggerNext = () => state.shouldRun || !!state.enforcedTasks.length;
+            const shouldTriggerNext = () => state.runCronTasks || !!state.enforcedTasks.length;
             if (shouldTriggerNext()) {
                 // if there was no task, wait for standard time,
                 // but try find another one when one has finished
@@ -400,27 +431,6 @@ function runATask(): void {
     })();
 }
 
-export type InitOptions = {
-    runCronTasks: boolean;
-    cronExpressionParserOptions: CronExpressionOptions;
-    onError: OnError;
-    onInfo: OnInfo;
-    cronTaskCaller: CronTaskCaller;
-    cronTaskFilter: CronTaskFilter;
-};
-
-export function init(initOptions: InitOptions): void {
-    if (initOptions.cronExpressionParserOptions.endDate) {
-        throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
-    }
-    state.shouldRun = initOptions.runCronTasks;
-    onError = initOptions.onError;
-    onInfo = initOptions.onInfo;
-    taskCaller = initOptions.cronTaskCaller;
-    taskFilter = initOptions.cronTaskFilter;
-    state.cronExpressionParserOptions = initOptions.cronExpressionParserOptions;
-}
-
 function ensureStarted(): void {
     // terminate waiting if there is any
     if (state.nextTaskTimeoutId) {
@@ -437,14 +447,14 @@ function ensureStarted(): void {
 
 export function stopCronTasks(): void {
     debug('STOPPING CRON TASKS');
-    state.shouldRun = false;
+    state.runCronTasks = false;
     if (state.nextTaskTimeoutId) {
         clearTimeout(state.nextTaskTimeoutId);
     }
 }
 
 export function startCronTasks(): void {
-    state.shouldRun = true;
+    state.runCronTasks = true;
     if (state.tasks.size) {
         ensureStarted();
     }
@@ -455,7 +465,7 @@ export async function scheduleCronTaskImmediately(taskId: TaskId): Promise<void>
     if (!matchedCount) {
         throw new Error(`No task with id "${taskId}" is registered.`);
     }
-    if (state.shouldRun && state.tasks.has(taskId)) {
+    if (state.runCronTasks && state.tasks.has(taskId)) {
         ensureStarted();
     }
 }
@@ -483,7 +493,8 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
 
     await ensureIndex();
 
-    if (state.shouldRun) {
+    // if the cron tasks are logically running, ensure the loop is running
+    if (state.runCronTasks) {
         ensureStarted();
     }
 }

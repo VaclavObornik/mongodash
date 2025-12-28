@@ -1,10 +1,11 @@
 import { ReactiveTaskScheduler } from '../reactiveTasks/index';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { ReactiveTaskStatus, ReactiveTaskQuery } from '../reactiveTasks/ReactiveTaskTypes';
-import { getCronTasksList, triggerCronTask, CronTaskQuery } from '../cronTasks';
-import { getMongoClient } from '../getMongoClient';
 import { Document, ObjectId } from 'mongodb';
+import { CronTaskQuery, getCronTasksList, triggerCronTask } from '../cronTasks';
+import { getMongoClient } from '../getMongoClient';
+import { onInfo } from '../OnInfo';
+import { CODE_MANUAL_TRIGGER, ReactiveTaskQuery, ReactiveTaskStatus } from '../reactiveTasks/ReactiveTaskTypes';
 
 export class OperationalTaskController {
     constructor(private scheduler: ReactiveTaskScheduler) {}
@@ -90,7 +91,15 @@ export class OperationalTaskController {
         if (body.sourceDocId) {
             query.sourceDocFilter = this.createSmartIdFilter(body.sourceDocId);
         }
-        return this.scheduler.getTaskManager().retryTasks(query);
+        const result = await this.scheduler.getTaskManager().retryTasks(query);
+        onInfo({
+            message: `Manual intervention via Dashboard: Retry tasks matching ${JSON.stringify(body)}`,
+            code: CODE_MANUAL_TRIGGER,
+            action: 'retry',
+            params: body,
+            modifiedCount: result.modifiedCount,
+        });
+        return result;
     }
 
     private createSmartIdFilter(sourceDocId: string) {
@@ -124,6 +133,12 @@ export class OperationalTaskController {
     public async triggerCronTask(body: { taskId: string }) {
         if (!body.taskId) throw new Error('taskId is required');
         await triggerCronTask(body.taskId);
+        onInfo({
+            message: `Manual intervention via Dashboard: Triggered Cron Task '${body.taskId}'`,
+            code: CODE_MANUAL_TRIGGER,
+            action: 'triggerCron',
+            taskId: body.taskId,
+        });
         return { success: true };
     }
 

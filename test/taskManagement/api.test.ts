@@ -1,7 +1,8 @@
-import { OperationalTaskController } from '../../src/task-management/OperationalTaskController';
+import { ObjectId } from 'mongodb';
+import { CronTaskQuery, getCronTasksList, triggerCronTask } from '../../src/cronTasks';
 import { ReactiveTaskScheduler } from '../../src/reactiveTasks/index';
 import { ReactiveTaskManager } from '../../src/reactiveTasks/ReactiveTaskManager';
-import { CronTaskQuery } from '../../src/cronTasks';
+import { OperationalTaskController } from '../../src/task-management/OperationalTaskController';
 
 // Mock `getCronTasksList` and `triggerCronTask` from `../cronTasks`
 // Jest mocking
@@ -9,8 +10,6 @@ jest.mock('../../src/cronTasks', () => ({
     getCronTasksList: jest.fn(),
     triggerCronTask: jest.fn(),
 }));
-import { getCronTasksList, triggerCronTask } from '../../src/cronTasks';
-import { ObjectId } from 'mongodb';
 
 describe('OperationalTaskController', () => {
     let scheduler: ReactiveTaskScheduler;
@@ -21,7 +20,7 @@ describe('OperationalTaskController', () => {
         taskManager = {
             getTasks: jest.fn().mockResolvedValue({ items: [], total: 0 }),
             getTaskStats: jest.fn().mockResolvedValue({ statuses: [], errorCount: 0 }),
-            retryTasks: jest.fn(),
+            retryTasks: jest.fn().mockResolvedValue({ modifiedCount: 1, matchedCount: 1 }),
         } as unknown as ReactiveTaskManager;
 
         scheduler = {
