@@ -191,15 +191,27 @@ describe('withLock', () => {
         });
     });
 
-    it.todo(
-        'should prolong the lock if the task lasts too long' /*, async () => {
+    it('should prolong the lock if the task lasts too long', async () => {
         const { withLock, getCollection } = instance.mongodash;
-        const key = 2;
-        const start = new Date();
-        await withLock(key, async () => {
-            const timeDiff = Date.now() - start.getTime();
-            assert(timeDiff < 50, `It taken too long to acquire lock: ${timeDiff}`);
-        });
-    }*/,
-    );
+        const key = 'prolong-test';
+        const expireIn = 300;
+        const collection = getCollection<Document & { _id: string; expiresAt: Date }>('locks');
+
+        await withLock(
+            key,
+            async () => {
+                const docStart = await collection.findOne({ _id: key });
+                const startExpiration = docStart!.expiresAt.getTime();
+
+                // Wait for prolong (occurs at expireIn / 5 = 60ms)
+                await wait(200);
+
+                const docMid = await collection.findOne({ _id: key });
+                const midExpiration = docMid!.expiresAt.getTime();
+
+                assert(midExpiration > startExpiration, `Lock was not prolonged: ${midExpiration} <= ${startExpiration}`);
+            },
+            { expireIn },
+        );
+    });
 });
