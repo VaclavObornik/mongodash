@@ -57,9 +57,8 @@ export function queryToExpression(query: Document): Document {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseFieldCondition(field: string, value: any): Document | null {
-    // Escape field name if it contains dots? No, user intends dot notation -> mapped to nested access in aggregation.
-    // e.g. "meta.type" -> "$meta.type" (valid in agg if meta is object)
-    const fieldPath = `$${field}`;
+    const rawFieldPath = `$${field}`;
+    const ifNullFieldPath = { $ifNull: [rawFieldPath, null] };
 
     // 1. Equality / Direct Value
     if (
@@ -69,12 +68,13 @@ function parseFieldCondition(field: string, value: any): Document | null {
         value instanceof Date ||
         value instanceof RegExp ||
         value instanceof ObjectId ||
-        value._bsontype === 'ObjectId' // Handling different ObjectId implementations
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (value as any)._bsontype === 'ObjectId' // Handling different ObjectId implementations
     ) {
         if (value instanceof RegExp) {
-            return { $regexMatch: { input: fieldPath, regex: value.source, options: value.flags } };
+            return { $regexMatch: { input: rawFieldPath, regex: value.source, options: value.flags } };
         }
-        return { $eq: [fieldPath, value] };
+        return { $eq: [ifNullFieldPath, value] };
     }
 
     const valueKeys = Object.keys(value);
@@ -89,51 +89,51 @@ function parseFieldCondition(field: string, value: any): Document | null {
 
             switch (op) {
                 case '$eq':
-                    fieldConditions.push({ $eq: [fieldPath, opVal] });
+                    fieldConditions.push({ $eq: [ifNullFieldPath, opVal] });
                     break;
                 case '$ne':
-                    fieldConditions.push({ $ne: [fieldPath, opVal] });
+                    fieldConditions.push({ $ne: [ifNullFieldPath, opVal] });
                     break;
                 case '$gt':
-                    fieldConditions.push({ $gt: [fieldPath, opVal] });
+                    fieldConditions.push({ $gt: [ifNullFieldPath, opVal] });
                     break;
                 case '$gte':
-                    fieldConditions.push({ $gte: [fieldPath, opVal] });
+                    fieldConditions.push({ $gte: [ifNullFieldPath, opVal] });
                     break;
                 case '$lt':
-                    fieldConditions.push({ $lt: [fieldPath, opVal] });
+                    fieldConditions.push({ $lt: [ifNullFieldPath, opVal] });
                     break;
                 case '$lte':
-                    fieldConditions.push({ $lte: [fieldPath, opVal] });
+                    fieldConditions.push({ $lte: [ifNullFieldPath, opVal] });
                     break;
                 case '$in':
-                    fieldConditions.push({ $in: [fieldPath, opVal] });
+                    fieldConditions.push({ $in: [ifNullFieldPath, opVal] });
                     break;
                 case '$nin':
-                    fieldConditions.push({ $not: [{ $in: [fieldPath, opVal] }] });
+                    fieldConditions.push({ $not: [{ $in: [ifNullFieldPath, opVal] }] });
                     break;
                 case '$exists':
                     // { field: { $exists: true } } -> { $ne: [{ $type: "$field" }, "missing"] }
                     if (opVal) {
-                        fieldConditions.push({ $ne: [{ $type: fieldPath }, 'missing'] });
+                        fieldConditions.push({ $ne: [{ $type: rawFieldPath }, 'missing'] });
                     } else {
-                        fieldConditions.push({ $eq: [{ $type: fieldPath }, 'missing'] });
+                        fieldConditions.push({ $eq: [{ $type: rawFieldPath }, 'missing'] });
                     }
                     break;
                 case '$regex':
                     // { name: { $regex: 'val', $options: 'i' } }
 
                     const options = value['$options'] || '';
-                    fieldConditions.push({ $regexMatch: { input: fieldPath, regex: opVal, options } });
+                    fieldConditions.push({ $regexMatch: { input: rawFieldPath, regex: opVal, options } });
                     break;
                 case '$options':
                     // Handled in $regex
                     break;
                 case '$type':
-                    fieldConditions.push({ $eq: [{ $type: fieldPath }, opVal] });
+                    fieldConditions.push({ $eq: [{ $type: rawFieldPath }, opVal] });
                     break;
                 case '$size':
-                    fieldConditions.push({ $eq: [{ $size: fieldPath }, opVal] });
+                    fieldConditions.push({ $eq: [{ $size: rawFieldPath }, opVal] });
                     break;
 
                 default:
@@ -151,11 +151,6 @@ function parseFieldCondition(field: string, value: any): Document | null {
         }
         return { $and: fieldConditions };
     } else {
-        // Direct object equality: { "meta": { type: "param" } } -> { $eq: ["$meta", { type: "param" }] }
-        // BUT if user did "meta.type": "val", it lands here.
-        // fieldPath is "$meta.type". value is "val".
-        // { $eq: ["$meta.type", "val"] } -> CORRECT.
-
-        return { $eq: [fieldPath, value] };
+        return { $eq: [ifNullFieldPath, value] };
     }
 }
