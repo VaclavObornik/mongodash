@@ -184,7 +184,7 @@ describe('Reactive Tasks Flow Control (Defer/Throttle)', () => {
         const start = Date.now();
         while (Date.now() - start < 10000) {
             const task = await db.collection(tasksCollectionName).findOne({ task: taskName });
-            if (task && task.dueAt) return task;
+            if (task && task.dueAt && task.nextRunAt.getTime() > task.dueAt.getTime()) return task;
             await new Promise((resolve) => setTimeout(resolve, 200));
         }
         throw new Error(`Timeout waiting for deferral of task ${taskName} in ${tasksCollectionName}`);

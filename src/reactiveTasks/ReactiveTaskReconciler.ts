@@ -30,7 +30,7 @@ export class ReactiveTaskReconciler {
         private registry: ReactiveTaskRegistry,
         private ops: ReactiveTaskOps,
         private onInfo: OnInfo,
-        private internalOptions: { batchSize: number; batchIntervalMs: number; getNextCleanupDate: (date?: Date) => Date },
+        private internalOptions: { batchSize: number; batchIntervalMs: number; minBatchIntervalMs: number; getNextCleanupDate: (date?: Date) => Date },
     ) {}
 
     private nextCleanupTime: number | null = null;

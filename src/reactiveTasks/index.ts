@@ -104,6 +104,7 @@ export class ReactiveTaskScheduler {
         visibilityTimeoutMs: 60000,
         batchSize: 1000,
         batchIntervalMs: 500,
+        minBatchIntervalMs: 50,
         getNextCleanupDate: (d?: Date) => new Date((d?.getTime() ?? Date.now()) + 24 * 60 * 60 * 1000), // 24h default
     };
 
@@ -216,6 +217,7 @@ export class ReactiveTaskScheduler {
             {
                 batchSize: this.internalOptions.batchSize,
                 batchIntervalMs: this.internalOptions.batchIntervalMs,
+                minBatchIntervalMs: this.internalOptions.minBatchIntervalMs,
                 getNextCleanupDate: this.internalOptions.getNextCleanupDate,
             },
             onInfo,
