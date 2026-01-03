@@ -1,3 +1,5 @@
+import { EJSON } from 'bson';
+import * as _debug from 'debug';
 import {
     ChangeStream,
     ChangeStreamDeleteDocument,
@@ -8,27 +10,25 @@ import {
     MongoError,
     ResumeToken,
 } from 'mongodb';
-import stringify = require('fast-json-stable-stringify');
-import * as _debug from 'debug';
-import { GlobalsCollection } from '../globalsCollection';
 import { getMongoClient } from '../getMongoClient';
+import { GlobalsCollection } from '../globalsCollection';
+import { defaultOnError, OnError } from '../OnError';
+import { defaultOnInfo, OnInfo } from '../OnInfo';
 import { prefixFilterKeys } from '../prefixFilterKeys';
-import {
-    MetaDocument,
-    CODE_REACTIVE_TASK_PLANNER_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_STOPPED,
-    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
-    REACTIVE_TASK_META_DOC_ID,
-    EvolutionConfig,
-    ReactiveTaskInternal,
-} from './ReactiveTaskTypes';
-import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
-import { OnInfo, defaultOnInfo } from '../OnInfo';
-import { OnError, defaultOnError } from '../OnError';
-import { EJSON } from 'bson';
 import { ReactiveTaskOps } from './ReactiveTaskOps';
 import { ReactiveTaskReconciler } from './ReactiveTaskReconciler';
+import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
+import {
+    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STOPPED,
+    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
+    EvolutionConfig,
+    MetaDocument,
+    ReactiveTaskInternal,
+    REACTIVE_TASK_META_DOC_ID,
+} from './ReactiveTaskTypes';
+import stringify = require('fast-json-stable-stringify');
 
 const debug = _debug('mongodash:reactiveTasks:planner');
 
@@ -57,6 +57,7 @@ export class ReactiveTaskPlanner {
     private taskBatch = new Map<string, FilteredChangeStreamDocument>();
     private taskBatchLastResumeToken: ResumeToken | null = null;
     private batchFlushTimer: NodeJS.Timeout | null = null;
+    private batchFirstEventTime: number | null = null;
     private isFlushing = false;
     private metaDocId = REACTIVE_TASK_META_DOC_ID;
     private lastClusterTime: number | null = null;
@@ -73,7 +74,7 @@ export class ReactiveTaskPlanner {
         private instanceId: string,
         private registry: ReactiveTaskRegistry,
         private callbacks: PlannerCallbacks,
-        private internalOptions: { batchSize: number; batchIntervalMs: number; getNextCleanupDate: (date?: Date) => Date },
+        private internalOptions: { batchSize: number; batchIntervalMs: number; minBatchIntervalMs: number; getNextCleanupDate: (date?: Date) => Date },
         private onInfo: OnInfo = defaultOnInfo,
         private onError: OnError = defaultOnError,
     ) {
@@ -275,14 +276,33 @@ export class ReactiveTaskPlanner {
         this.taskBatch.set(docId, change);
         this.taskBatchLastResumeToken = change._id;
 
+        const now = Date.now();
+
+        // Immediate flush if batch size reached
         if (this.taskBatch.size >= this.internalOptions.batchSize) {
-            if (this.batchFlushTimer) {
-                clearTimeout(this.batchFlushTimer);
-                this.batchFlushTimer = null;
-            }
             await this.flushTaskBatch();
-        } else if (!this.batchFlushTimer) {
-            this.batchFlushTimer = setTimeout(() => this.flushTaskBatch(), this.internalOptions.batchIntervalMs);
+            return;
+        }
+
+        // Sliding Window with Max Wait Logic
+        if (!this.batchFirstEventTime) {
+            // First event of the batch
+            this.batchFirstEventTime = now;
+            this.batchFlushTimer = setTimeout(() => this.flushTaskBatch(), this.internalOptions.minBatchIntervalMs);
+        } else {
+            // Subsequent event
+            const elapsedSinceFirst = now - this.batchFirstEventTime;
+
+            if (elapsedSinceFirst >= this.internalOptions.batchIntervalMs) {
+                // Max wait reached
+                await this.flushTaskBatch();
+            } else {
+                // Reset sliding window timer
+                if (this.batchFlushTimer) {
+                    clearTimeout(this.batchFlushTimer);
+                }
+                this.batchFlushTimer = setTimeout(() => this.flushTaskBatch(), this.internalOptions.minBatchIntervalMs);
+            }
         }
     }
 
@@ -318,6 +338,7 @@ export class ReactiveTaskPlanner {
             // The stream continues.
         } finally {
             this.isFlushing = false;
+            this.batchFirstEventTime = null;
         }
     }
 

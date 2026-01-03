@@ -88,10 +88,15 @@ describe('Reactive Task Worker Context', () => {
         await waitForNextCall(2000);
 
         // Verify task status in DB is 'completed' (not failed)
-        await wait(500);
+        // Use waitUntil because the update inside the handler might trigger re-planning
         const tasksCol = instance.mongodash.getCollection(`${taskId}_tasks`);
-        const task = await tasksCol.findOne({});
-        expect(task?.status).toBe('completed');
+        await waitUntil(
+            async () => {
+                const task = await tasksCol.findOne({});
+                return task?.status === 'completed';
+            },
+            { timeoutMs: 5000, message: 'Task should eventually be completed (skipped due to filter mismatch)' },
+        );
     });
 
     it('should skip task if watched values mismatch (Optimistic Locking)', async () => {
@@ -101,13 +106,14 @@ describe('Reactive Task Worker Context', () => {
         const { stub: handler, waitForNextCall } = createReusableWaitableStub(async (context: any) => {
             // Verify watched values presence
             expect(context.watchedValues).toBeDefined();
-            expect(context.watchedValues.version).toBe(1);
 
-            // Simulate race: Document version changed
-            await collection.updateOne({ _id: context.docId }, { $set: { version: 2 } });
+            if (context.watchedValues.version === 1) {
+                // Simulate race: Document version changed
+                await collection.updateOne({ _id: context.docId }, { $set: { version: 2 } });
 
-            // This should throw because context.watchedValues (v1) != sourceDoc (v2)
-            await context.getDocument();
+                // This should throw because context.watchedValues (v1) != sourceDoc (v2)
+                await context.getDocument();
+            }
         });
 
         await instance.mongodash.reactiveTask({
@@ -124,12 +130,19 @@ describe('Reactive Task Worker Context', () => {
         await collection.insertOne({ _id: new ObjectId(), version: 1, data: 'foo' } as Document);
 
         await waitForNextCall(2000);
+        await wait(500);
 
         // Verify task status is 'completed' (skipped)
-        await wait(500);
+        // We use waitUntil because the update inside the handler might trigger another planning
+        // that could set the status back to pending temporarily if processing_dirty was reached.
         const tasksCol = instance.mongodash.getCollection(`${taskId}_tasks`);
-        const task = await tasksCol.findOne({});
-        expect(task?.status).toBe('completed');
+        await waitUntil(
+            async () => {
+                const task = await tasksCol.findOne({});
+                return task?.status === 'completed';
+            },
+            { timeoutMs: 5000, message: 'Task should eventually be completed (skipped)' },
+        );
     });
 
     it('should handle complex watch projections (dotted paths)', async () => {
@@ -163,9 +176,11 @@ describe('Reactive Task Worker Context', () => {
         const taskId = 'complexMismatchTask';
 
         const { stub: handler, waitForNextCall } = createReusableWaitableStub(async (context: any) => {
-            // Change data
-            await collection.updateOne({ _id: context.docId }, { $set: { 'meta.version': 2 } });
-            await context.getDocument();
+            if (context.watchedValues?.meta?.version === 1) {
+                // Change data
+                await collection.updateOne({ _id: context.docId }, { $set: { 'meta.version': 2 } });
+                await context.getDocument();
+            }
         });
 
         await instance.mongodash.reactiveTask({

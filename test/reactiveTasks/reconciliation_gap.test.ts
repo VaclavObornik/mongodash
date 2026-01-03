@@ -65,7 +65,7 @@ describe('ReactiveTaskPlanner - Reconciliation Gap Race Condition', () => {
             'test-instance',
             registry,
             { onStreamError: () => console.error('Stream Error'), onTaskPlanned: () => {} },
-            { batchSize: 100, batchIntervalMs: 50, getNextCleanupDate: () => new Date() }, // fast batching
+            { batchSize: 100, batchIntervalMs: 50, minBatchIntervalMs: 10, getNextCleanupDate: () => new Date() }, // fast batching
         );
 
         // 2. Insert INITIAL documents (simulating pre-existing backlog)
