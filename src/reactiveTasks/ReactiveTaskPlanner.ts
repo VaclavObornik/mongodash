@@ -1,3 +1,4 @@
+import * as _debug from 'debug';
 import {
     ChangeStream,
     ChangeStreamDeleteDocument,
@@ -8,27 +9,26 @@ import {
     MongoError,
     ResumeToken,
 } from 'mongodb';
-import stringify = require('fast-json-stable-stringify');
-import * as _debug from 'debug';
-import { GlobalsCollection } from '../globalsCollection';
 import { getMongoClient } from '../getMongoClient';
+import { GlobalsCollection } from '../globalsCollection';
+import { defaultOnError, OnError } from '../OnError';
+import { defaultOnInfo, OnInfo } from '../OnInfo';
 import { prefixFilterKeys } from '../prefixFilterKeys';
-import {
-    MetaDocument,
-    CODE_REACTIVE_TASK_PLANNER_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_STOPPED,
-    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
-    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
-    REACTIVE_TASK_META_DOC_ID,
-    EvolutionConfig,
-    ReactiveTaskInternal,
-} from './ReactiveTaskTypes';
-import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
-import { OnInfo, defaultOnInfo } from '../OnInfo';
-import { OnError, defaultOnError } from '../OnError';
-import { EJSON } from 'bson';
+import { serializeKey } from '../utils/serializeKey';
 import { ReactiveTaskOps } from './ReactiveTaskOps';
 import { ReactiveTaskReconciler } from './ReactiveTaskReconciler';
+import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
+import {
+    CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STARTED,
+    CODE_REACTIVE_TASK_PLANNER_STOPPED,
+    CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
+    EvolutionConfig,
+    MetaDocument,
+    ReactiveTaskInternal,
+    REACTIVE_TASK_META_DOC_ID,
+} from './ReactiveTaskTypes';
+import stringify = require('fast-json-stable-stringify');
 
 const debug = _debug('mongodash:reactiveTasks:planner');
 
@@ -265,13 +265,19 @@ export class ReactiveTaskPlanner {
     private async enqueueTaskChange(change: FilteredChangeStreamDocument): Promise<void> {
         debug(`[Scheduler ${this.instanceId}] Change detected: `, change._id);
 
+        if (!change.documentKey?._id) {
+            // Some events like 'drop', 'dropDatabase', 'invalidate' don't have documentKey.
+            // We can safely ignore them for task planning.
+            return;
+        }
+
         if (change.clusterTime) {
             // clusterTime is a BSON Timestamp.
             // .getHighBits() returns the seconds since epoch.
             this.lastClusterTime = change.clusterTime.getHighBits();
         }
 
-        const docId = EJSON.stringify(change.documentKey._id, { relaxed: false });
+        const docId = serializeKey(change.documentKey._id);
         this.taskBatch.set(docId, change);
         this.taskBatchLastResumeToken = change._id;
 
