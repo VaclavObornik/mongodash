@@ -145,6 +145,18 @@ describe('serveDashboard Integration Tests', () => {
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
             expect(handled).toBe(false);
         });
+
+        it('should handle nested API route (e.g. mounted under /api/utils)', async () => {
+            const scheduler = (API as any)._scheduler;
+            // Simulating mount at /api/utils/taskDashboard
+            req.url = '/api/utils/taskDashboard/api/reactive/list?status=failed';
+            await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+
+            expect(setHeaderSpy).toHaveBeenCalledWith('Content-Type', 'application/json');
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.items).toBeDefined();
+            expect(Array.isArray(response.items)).toBe(true);
+        });
     });
 
     describe('Static File Serving', () => {
@@ -170,6 +182,32 @@ describe('serveDashboard Integration Tests', () => {
             (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
 
             req.url = '/some/route';
+            const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
+            expect(handled).toBe(true);
+            expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/index.html');
+        });
+
+        it('should serve exact file with nested path containing "api"', async () => {
+            const scheduler = (API as any)._scheduler;
+            (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/style.css');
+            (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+
+            // Mounted at /api/utils/dashboard
+            req.url = '/api/utils/dashboard/style.css';
+            const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
+            expect(handled).toBe(true);
+            expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/style.css');
+        });
+
+        it('should serve index.html via SPA fallback with nested path containing "api"', async () => {
+            const scheduler = (API as any)._scheduler;
+            (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/index.html');
+            (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+
+            // Mounted at /api/utils/dashboard
+            req.url = '/api/utils/dashboard/view/123';
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
             expect(handled).toBe(true);
             expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/index.html');
