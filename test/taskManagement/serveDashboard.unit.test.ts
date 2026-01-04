@@ -158,6 +158,19 @@ describe('serveDashboard Integration Tests', () => {
             expect(response.items).toBeDefined();
             expect(Array.isArray(response.items)).toBe(true);
         });
+
+        it('should handle API call when path itself contains /api/ (double nested)', async () => {
+            const scheduler = (API as any)._scheduler;
+            // Like: /api/utils/taskDashboard/api/info
+            req.url = '/api/utils/taskDashboard/api/info';
+            const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+
+            expect(handled).toBe(true);
+            expect(setHeaderSpy).toHaveBeenCalledWith('Content-Type', 'application/json');
+            // verify it matches info response structure
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.databaseName).toBeDefined();
+        });
     });
 
     describe('Static File Serving', () => {
