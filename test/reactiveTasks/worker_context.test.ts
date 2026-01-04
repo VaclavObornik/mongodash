@@ -206,4 +206,51 @@ describe('Reactive Task Worker Context', () => {
         );
         // expect(task?.status).toBe('completed'); // skipped
     });
+    it('should log full error object via onError when task fails', async () => {
+        // Re-initialize for this test to control onError (beforeEach sets a custom one that bypasses setOnError)
+        await instance.cleanUpInstance();
+        instance = getNewInstance();
+        await instance.initInstance({
+            onInfo: () => {}, // silence info
+            // Do NOT pass onError, so it uses the wrapper from testHelpers that respects setOnError
+        });
+
+        const collection = instance.mongodash.getCollection('errorLoggingTask');
+        const taskId = 'errorLoggingTask';
+
+        const errorToThrow = new Error('Intentional Failure for Logging Test');
+        (errorToThrow as any).customProperty = 'foobar';
+
+        const errorSpy = sinon.spy();
+        instance.setOnError(errorSpy);
+
+        const { stub: handler, waitForNextCall } = createReusableWaitableStub(async () => {
+            throw errorToThrow;
+        });
+
+        await instance.mongodash.reactiveTask({
+            collection,
+            task: taskId,
+            handler,
+            retryPolicy: { type: 'linear', interval: '10ms', maxAttempts: 1 },
+            debounce: 0,
+        });
+
+        await instance.mongodash.startReactiveTasks();
+
+        await collection.insertOne({ _id: new ObjectId(), status: 'pending' } as Document);
+
+        // Wait for handler to accept call (and fail)
+        await waitForNextCall(2000);
+
+        // Wait a bit for async error handling
+        await wait(200);
+
+        // Verify onError was called with the exact error object
+        sinon.assert.calledWith(errorSpy, errorToThrow);
+        const loggedError = errorSpy.firstCall.args[0];
+        expect(loggedError).toBe(errorToThrow);
+        expect(loggedError.message).toBe('Intentional Failure for Logging Test');
+        expect(loggedError.customProperty).toBe('foobar');
+    });
 });
