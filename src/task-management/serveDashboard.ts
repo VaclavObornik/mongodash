@@ -42,7 +42,7 @@ export async function serveDashboard(req: IncomingMessage, res: ServerResponse, 
 
     // 1. Handle API Requests
     // We look for /api/ in the path. This supports mounting with prefixes.
-    const apiIndex = pathname.indexOf('/api/');
+    const apiIndex = pathname.lastIndexOf('/api/');
     if (apiIndex !== -1) {
         const apiPath = pathname.substring(apiIndex); // e.g. /api/reactive/list
 
@@ -76,8 +76,9 @@ export async function serveDashboard(req: IncomingMessage, res: ServerResponse, 
                 return sendJson(res, result);
             }
 
-            // If it matched /api/ but no handler, we return false so parent can handle or 404
-            return false;
+            // If it matched /api/ but no handler, we continue to check for static files
+            // (e.g. if the base path itself contains /api/)
+            // return false;
         } catch (err) {
             return sendError(res, err);
         }
