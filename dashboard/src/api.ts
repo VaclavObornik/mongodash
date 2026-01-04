@@ -10,7 +10,15 @@ import type {
     GetInfoResponse
 } from '@shared/types';
 
-const API_BASE = './api';
+const getApiBase = () => {
+    let base = window.location.pathname;
+    if (!base.endsWith('/')) {
+        base += '/';
+    }
+    return base + 'api';
+};
+
+const API_BASE = getApiBase();
 
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
     const res = await fetch(API_BASE + url, {
