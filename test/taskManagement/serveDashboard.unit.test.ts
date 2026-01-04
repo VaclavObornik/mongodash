@@ -21,6 +21,7 @@ describe('serveDashboard Integration Tests', () => {
     let fsMock: any;
 
     beforeEach(async () => {
+        jest.resetModules();
         instance = getNewInstance();
 
         serveDashboard = require('../../src/task-management/serveDashboard').serveDashboard;
@@ -211,6 +212,56 @@ describe('serveDashboard Integration Tests', () => {
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
             expect(handled).toBe(true);
             expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/index.html');
+        });
+        describe('Path Resolution', () => {
+            // We need to access the helper but it's internal.
+            // But we can verify it by checking what path it tries to read.
+            // Note: fsMock is reset in beforeEach so we mock it per test.
+
+            it('should use dev path (dist/dashboard) if it exists', async () => {
+                const scheduler = (API as any)._scheduler;
+
+                // Mock that ../../dist/dashboard exists (The "Dev" path relative to src/task-management)
+                // AND that ../../dashboard also "exists" but shouldn't be picked if dev path is found first?
+                // Actually the logic prefers dev path if it exists.
+
+                // We can't easily guess the absolute path __dirname resolves to in the test env without `path`.
+                // But we can match endsWith.
+                (fsMock.existsSync as jest.Mock).mockImplementation((p: string) => {
+                    return p.endsWith('dist/dashboard') || p.endsWith('style.css');
+                });
+                (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+
+                req.url = '/style.css';
+                const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler }); // No explicit dashboardPath
+
+                expect(handled).toBe(true);
+                const callArgs = (fsMock.createReadStream as jest.Mock).mock.calls[0][0];
+                expect(callArgs).toMatch(/dist\/dashboard\/style\.css$/);
+            });
+
+            it('should fallback to prod path (root dashboard) if dev path missing', async () => {
+                const scheduler = (API as any)._scheduler;
+
+                (fsMock.existsSync as jest.Mock).mockImplementation((p: string) => {
+                    // Return FALSE for dist/dashboard (simulating dist/dist issue)
+                    if (p.endsWith('dist/dashboard')) return false;
+
+                    // Return TRUE for root dashboard
+                    return p.endsWith('/dashboard') || p.endsWith('style.css');
+                });
+                (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+
+                req.url = '/style.css';
+                const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+
+                expect(handled).toBe(true);
+                const callArgs = (fsMock.createReadStream as jest.Mock).mock.calls[0][0];
+                expect(callArgs).toMatch(/\/dashboard\/style\.css$/);
+                expect(callArgs).not.toMatch(/dist\/dashboard\/style\.css$/);
+            });
         });
     });
 });
