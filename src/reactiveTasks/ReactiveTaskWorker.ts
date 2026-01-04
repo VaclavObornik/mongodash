@@ -1,8 +1,8 @@
 import * as _debug from 'debug';
 import { Document, Filter, FindOptions } from 'mongodb';
 import { createContinuousLock } from '../createContinuousLock';
-import { defaultOnError, OnError } from '../OnError';
-import { defaultOnInfo, OnInfo } from '../OnInfo';
+import { onError } from '../OnError';
+import { onInfo } from '../OnInfo';
 import { compileWatchProjection } from './compileWatchProjection';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
@@ -46,8 +46,6 @@ export class ReactiveTaskWorker {
         private internalOptions: { visibilityTimeoutMs: number } = { visibilityTimeoutMs: 300000 },
         taskCaller?: ReactiveTaskCaller,
         private taskFilter?: ReactiveTaskFilter,
-        private onInfo: OnInfo = defaultOnInfo,
-        private onError: OnError = defaultOnError,
         private metricsCollector?: MetricsCollector,
     ) {
         this.taskCaller = taskCaller || ((task) => task());
@@ -166,7 +164,7 @@ export class ReactiveTaskWorker {
 
         const processTheTask = async () => {
             const start = Date.now();
-            this.onInfo({
+            onInfo({
                 message: `Reactive task '${taskRecord.task}' started.`,
                 taskId: taskRecord._id.toString(),
                 code: CODE_REACTIVE_TASK_STARTED,
@@ -176,7 +174,7 @@ export class ReactiveTaskWorker {
                 await taskDef.handler(context);
 
                 const duration = Date.now() - start;
-                this.onInfo({
+                onInfo({
                     message: `Reactive task '${taskRecord.task}' finished in ${duration}ms.`,
                     taskId: taskRecord._id.toString(),
                     code: CODE_REACTIVE_TASK_FINISHED,
@@ -188,7 +186,7 @@ export class ReactiveTaskWorker {
                     debug(
                         `[Scheduler ${this.instanceId}] Source document ${taskRecord.sourceDocId} not found or does not match filter for task ${taskRecord._id}. Marking as completed (skipped).`,
                     );
-                    this.onInfo({
+                    onInfo({
                         message: `Reactive task '${taskRecord.task}' finished in ${duration}ms (skipped - filter mismatch).`,
                         taskId: taskRecord._id.toString(),
                         code: CODE_REACTIVE_TASK_FINISHED,
@@ -198,9 +196,11 @@ export class ReactiveTaskWorker {
                     return;
                 }
 
+                onError(err as Error);
+
                 const duration = Date.now() - start;
                 const reason = err instanceof Error ? err.message : `${err}`;
-                this.onInfo({
+                onInfo({
                     message: `Reactive task '${taskRecord.task}' failed in ${duration}ms.`,
                     taskId: taskRecord._id.toString(),
                     code: CODE_REACTIVE_TASK_FAILED,
@@ -229,7 +229,7 @@ export class ReactiveTaskWorker {
 
             if (deferredTo) {
                 if (isManuallyFinalized) {
-                    this.onInfo({
+                    onInfo({
                         message: `[ReactiveTask] Task '${taskRecord.task}' (ID: ${taskRecord._id}) was manually marked as completed, but deferCurrent() was also called. Ignoring defer request.`,
                         code: 'reactiveTaskDeferIgnored',
                         taskId: taskRecord._id.toString(),

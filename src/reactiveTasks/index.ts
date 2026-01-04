@@ -277,8 +277,6 @@ export class ReactiveTaskScheduler {
             },
             this.options.reactiveTaskCaller,
             this.options.reactiveTaskFilter,
-            onInfo,
-            onError,
             this.metricsCollector,
         );
 
