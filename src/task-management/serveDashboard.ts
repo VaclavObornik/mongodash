@@ -34,7 +34,10 @@ export async function serveDashboard(req: IncomingMessage, res: ServerResponse, 
     // Default dashboard path: inside dist/dashboard of the package
     // When running from src..., it might be elsewhere, but we assume it's integrated.
     // __dirname is .../src/task-management
-    const dashboardPath = options.dashboardPath || path.resolve(__dirname, '../../dist/dashboard');
+    let dashboardPath = options.dashboardPath;
+    if (!dashboardPath) {
+        dashboardPath = getResolvedDashboardPath();
+    }
 
     const parsedUrl = parseUrl(req.url || '', true);
     const pathname = parsedUrl.pathname || '/';
@@ -158,4 +161,25 @@ function pipeFile(res: ServerResponse, filePath: string): boolean {
     res.setHeader('Content-Type', mime);
     fs.createReadStream(filePath).pipe(res);
     return true;
+}
+
+let cachedDashboardPath: string | undefined;
+
+function getResolvedDashboardPath(): string {
+    if (cachedDashboardPath) return cachedDashboardPath;
+
+    // In development (ts-node from src), __dirname is src/task-management.
+    // We want ../../dist/dashboard.
+    const devPath = path.resolve(__dirname, '../../dist/dashboard');
+
+    // In production (compiled JS in dist/lib), __dirname is dist/lib/task-management.
+    // ../../dist/dashboard would resolve to dist/dist/dashboard, which is wrong.
+    // We want ../../dashboard (which resolves to dist/dashboard).
+
+    if (fs.existsSync(devPath)) {
+        cachedDashboardPath = devPath;
+    } else {
+        cachedDashboardPath = path.resolve(__dirname, '../../dashboard');
+    }
+    return cachedDashboardPath;
 }
