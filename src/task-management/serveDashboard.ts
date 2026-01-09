@@ -143,6 +143,9 @@ async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function sendJson(res: ServerResponse, data: any): boolean {
+    if (!res.headersSent) {
+        res.statusCode = 200;
+    }
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(data));
     return true;
@@ -156,6 +159,9 @@ function sendError(res: ServerResponse, err: unknown): boolean {
 }
 
 function pipeFile(res: ServerResponse, filePath: string): boolean {
+    if (!res.headersSent) {
+        res.statusCode = 200;
+    }
     const ext = path.extname(filePath).toLowerCase();
     const mime = mimeTypes[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', mime);
