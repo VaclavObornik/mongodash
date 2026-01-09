@@ -51,7 +51,7 @@ describe('serveDashboard Integration Tests', () => {
             end: endSpy,
             write: writeSpy,
             setHeader: setHeaderSpy,
-            statusCode: 200,
+            statusCode: 404,
         };
 
         // Reset fs mocks
@@ -81,6 +81,7 @@ describe('serveDashboard Integration Tests', () => {
             await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
 
             expect(setHeaderSpy).toHaveBeenCalledWith('Content-Type', 'application/json');
+            expect(res.statusCode).toBe(200);
             const response = JSON.parse(endSpy.mock.calls[0][0]);
             expect(response.items).toBeDefined();
             expect(Array.isArray(response.items)).toBe(true);
@@ -187,6 +188,7 @@ describe('serveDashboard Integration Tests', () => {
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
             expect(handled).toBe(true);
             expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/style.css');
+            expect(res.statusCode).toBe(200);
         });
 
         it('should serve index.html via SPA fallback', async () => {
