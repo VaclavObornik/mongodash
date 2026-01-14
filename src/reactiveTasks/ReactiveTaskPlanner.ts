@@ -65,10 +65,6 @@ export class ReactiveTaskPlanner {
     private ops: ReactiveTaskOps;
     private reconciler: ReactiveTaskReconciler;
 
-    private get isStoppedTester(): () => boolean {
-        return () => this.changeStream === null;
-    }
-
     constructor(
         private globalsCollection: GlobalsCollection,
         private instanceId: string,
@@ -98,7 +94,7 @@ export class ReactiveTaskPlanner {
 
         // Pass the current stream instance to reconcile. If stream fails/restarts, instance changes and reconcile aborts.
         if (this.changeStream) {
-            await this.reconciler.reconcile(this.isStoppedTester);
+            await this.reconciler.reconcile(this.getIsStoppedTester());
         }
     }
 
@@ -108,6 +104,11 @@ export class ReactiveTaskPlanner {
             message: `Reactive task planner stopped.`,
             code: CODE_REACTIVE_TASK_PLANNER_STOPPED,
         });
+    }
+
+    private getIsStoppedTester(): () => boolean {
+        const changeStreamInstance = this.changeStream;
+        return () => this.changeStream !== changeStreamInstance || this.changeStream === null;
     }
 
     public async saveResumeToken(token: ResumeToken, lastClusterTime?: Date): Promise<void> {
@@ -130,7 +131,7 @@ export class ReactiveTaskPlanner {
         }
 
         // Periodic cleanup of orphaned tasks
-        await this.reconciler.performPeriodicCleanup(this.isStoppedTester);
+        await this.reconciler.performPeriodicCleanup(this.getIsStoppedTester());
     }
 
     private isStopping = false;
@@ -168,17 +169,23 @@ export class ReactiveTaskPlanner {
             }
 
             const pipeline = this.getChangeStreamPipeline();
-            debug(`[Scheduler ${this.instanceId}] Change Stream Pipeline: `, JSON.stringify(pipeline, null, 2));
+            if (debug.enabled) {
+                debug(`[Scheduler ${this.instanceId}] Change Stream Pipeline: `, JSON.stringify(pipeline, null, 2));
+            }
 
             // Determine which database to watch
             // We assume all monitored collections are in the same database for now.
             const tasks = this.registry.getAllTasks();
             let dbToWatch = getMongoClient().db(); // Default
             if (tasks.length > 0) {
+                // Log all tasks and their source collections for debugging
+                debug(`[ReactiveTaskPlanner] Registered tasks: ${tasks.map((t) => t.task + '(' + t.sourceCollection.collectionName + ')').join(', ')}`);
+
                 const dbName = tasks[0].sourceCollection.dbName;
                 dbToWatch = getMongoClient().db(dbName);
-                debug(`[ReactiveTaskPlanner] Watching database: ${dbName}`);
             }
+
+            debug(`[ReactiveTaskPlanner] Watching database: ${dbToWatch.databaseName}`);
 
             const stream = dbToWatch.watch(pipeline, streamOptions);
             this.changeStream = stream;
@@ -264,7 +271,9 @@ export class ReactiveTaskPlanner {
     }
 
     private async enqueueTaskChange(change: FilteredChangeStreamDocument): Promise<void> {
-        debug(`[Scheduler ${this.instanceId}] Change detected: `, change._id);
+        if (debug.enabled) {
+            debug(`[Scheduler ${this.instanceId}] Change detected: `, JSON.stringify(change, null, 2));
+        }
 
         if (change.clusterTime) {
             // clusterTime is a BSON Timestamp.
@@ -429,8 +438,9 @@ export class ReactiveTaskPlanner {
 
             // Start stream first to capture new events
             await this.startChangeStream();
-            if (this.changeStream) {
-                await this.reconciler.reconcile(this.isStoppedTester);
+            const currentStream = this.changeStream;
+            if (currentStream) {
+                await this.reconciler.reconcile(() => this.changeStream !== currentStream || this.changeStream === null);
             }
         } else {
             this.onInfo({
@@ -470,7 +480,7 @@ export class ReactiveTaskPlanner {
         }
 
         if (needsUpdate) {
-            debug(`[DEBUG] Updating meta doc with: `, JSON.stringify(update, null, 2));
+            debug.enabled && debug(`[DEBUG] Updating meta doc with: `, JSON.stringify(update, null, 2));
             await this.globalsCollection.updateOne({ _id: this.metaDocId }, update, { upsert: true });
         } else {
             debug(`[DEBUG] No updates needed for meta doc.`);
