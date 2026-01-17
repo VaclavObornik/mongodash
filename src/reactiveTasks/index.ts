@@ -2,6 +2,7 @@ import * as _debug from 'debug';
 import { Document } from 'mongodb';
 import type { Registry } from 'prom-client';
 import { ConcurrentRunner } from '../ConcurrentRunner';
+import { getMongoClient } from '../getMongoClient';
 import { GlobalsCollection } from '../globalsCollection';
 import { initPromise } from '../initPromise';
 import { createIntervalFunction } from '../parseInterval';
@@ -175,6 +176,11 @@ export class ReactiveTaskScheduler {
         this.isRunning = true;
         debug(`[Scheduler ${this.instanceId}] Starting...`);
         await initPromise; // Ensure init is complete
+
+        const helloResult = await getMongoClient().db().command({ hello: 1 });
+        if (!helloResult.setName) {
+            throw new Error('Reactive tasks can only be started when connected to a MongoDB Replica Set.');
+        }
 
         await Promise.all(this.registry.getAllTasks().map((task) => task.initPromise));
 
