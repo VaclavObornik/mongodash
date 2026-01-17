@@ -20,6 +20,16 @@ export class ReactiveTaskOps {
         private onTaskPlanned: (tasksCollectionName: string, debounceMs: number) => void,
     ) {}
 
+    private _forceDebounceMs?: number;
+
+    public setForceDebounce(debounceMs: number | undefined) {
+        this._forceDebounceMs = debounceMs;
+    }
+
+    public get forceDebounceMs(): number | undefined {
+        return this._forceDebounceMs;
+    }
+
     public async executePlanningPipeline(collectionName: string, sourceDocIds: unknown[], allowedTaskNames?: Set<string>): Promise<void> {
         debug(`executePlanningPipeline called for ${collectionName} with ${sourceDocIds.length} ids`);
         const entry = this.registry.getEntry(collectionName);
@@ -31,7 +41,7 @@ export class ReactiveTaskOps {
         const matchFilter = { _id: { $in: sourceDocIds } };
         const pipeline = this.generatePlanningPipeline(entry, matchFilter, allowedTaskNames);
         if (pipeline.length === 0) {
-            debug(`Pipeline empty for ${collectionName} (allowedTasks: ${allowedTaskNames ? Array.from(allowedTaskNames).join(',') : 'all'})`);
+            debug(`Pipeline empty for ${collectionName}(allowedTasks: ${allowedTaskNames ? Array.from(allowedTaskNames).join(',') : 'all'})`);
             return;
         }
 
@@ -44,10 +54,12 @@ export class ReactiveTaskOps {
             // Notify that tasks have been planned
             for (const task of entry.tasks.values()) {
                 if (allowedTaskNames && !allowedTaskNames.has(task.task)) continue;
-                this.onTaskPlanned(task.tasksCollection.collectionName, task.debounceMs);
+                // Use effective debounce
+                const effectiveDebounce = this.forceDebounceMs !== undefined ? this.forceDebounceMs : task.debounceMs;
+                this.onTaskPlanned(task.tasksCollection.collectionName, effectiveDebounce);
             }
         } catch (error) {
-            debug(`Error executing pipeline for ${collectionName}:`, error);
+            debug(`Error executing pipeline for ${collectionName}: `, error);
             throw error;
         }
     }
@@ -75,7 +87,7 @@ export class ReactiveTaskOps {
                                 task: task.task,
                                 matches: task.filter || true,
                                 watchedValues: compileWatchProjection(task.watchProjection),
-                                debounceMs: task.debounceMs,
+                                debounceMs: this.forceDebounceMs !== undefined ? this.forceDebounceMs : task.debounceMs,
                                 resetRetriesOnDataChange: task.retryStrategy.policy.resetRetriesOnDataChange,
                             })),
                             as: 't',

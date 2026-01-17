@@ -86,3 +86,38 @@ await assertNoReactiveTaskErrors({
     ]
 });
 ```
+
+## `configureForTesting`
+
+A helper to configure the library for fast, deterministic testing execution.
+
+By default, the library is optimized for production scenarios (e.g. `debounce: 1000ms`, `minPollMs: 200ms`). In tests, these delays cause unnecessary slowness.
+
+`configureForTesting` overrides these defaults globally to minimal values (e.g. `10ms`).
+
+### Usage
+
+Call this **once** in your global test setup (e.g. `jest.setup.js` or `beforeAll`).
+
+It works regardless of whether you call it before or after registering your tasks.
+
+```typescript
+import { configureForTesting } from 'mongodash/testing';
+
+beforeAll(() => {
+    // Sets debounce, polling, and batching to 10ms
+    configureForTesting();
+});
+```
+
+### Options
+
+You can customize specific values if needed:
+
+```typescript
+configureForTesting({
+    debounce: 0,        // Force 0ms debounce (immediate execution)
+    minPollMs: 50,      // Poll every 50ms
+    minBatchIntervalMs: 50
+});
+```
