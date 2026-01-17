@@ -78,6 +78,15 @@ export class ReactiveTaskPlanner {
         this.reconciler = new ReactiveTaskReconciler(instanceId, globalsCollection, registry, this.ops, onInfo, internalOptions);
     }
 
+    public updateOptions(options: Partial<typeof this.internalOptions>): void {
+        this.internalOptions = { ...this.internalOptions, ...options };
+        // If batch interval changes, we might want to reset timers, but it's fine for now (next batch will pick it up)
+    }
+
+    public setForceDebounce(debounceMs: number | undefined): void {
+        this.ops.setForceDebounce(debounceMs);
+    }
+
     public async start(): Promise<void> {
         this.onInfo({
             message: `Reactive task planner started.`,

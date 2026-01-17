@@ -148,6 +148,53 @@ export class ReactiveTaskScheduler {
         debug(`[Scheduler ${this.instanceId}] Configured.`);
     }
 
+    /**
+     * Updates internal options (for testing purposes).
+     */
+    public updateInternalOptions(options: Partial<typeof this.internalOptions>): void {
+        this.internalOptions = { ...this.internalOptions, ...options };
+        // If runner exists, update its config
+        if (this.concurrentRunner) {
+            this.concurrentRunner.updateAllSources({
+                minPollMs: options.minPollMs,
+                maxPollMs: options.maxPollMs,
+                jitterMs: options.jitterMs,
+            });
+        }
+        // Planner options (batching) are harder to update dynamically without restart,
+        // but batch intervals are read from internalOptions reference by Planner if passed by reference?
+        // Actually Planner gets a copy or config object in constructor.
+        // Checking Planner constructor: it takes ReactiveTaskPlannerOptions.
+        if (this.taskPlanner) {
+            this.taskPlanner.updateOptions({
+                batchSize: options.batchSize,
+                batchIntervalMs: options.batchIntervalMs,
+                minBatchIntervalMs: options.minBatchIntervalMs,
+                getNextCleanupDate: options.getNextCleanupDate,
+            });
+        }
+    }
+
+    private _forceDebounce?: number | string;
+
+    /**
+     * Overrides default configuration for tasks.
+     * Useful for testing to force low debounce on all tasks.
+     */
+    public overrideDefaults(defaults: { debounce?: number }): void {
+        if (defaults.debounce !== undefined) {
+            this._forceDebounce = defaults.debounce;
+            // Force update planner to use this debounce for FUTURE planning
+            if (this.taskPlanner) {
+                this.taskPlanner.setForceDebounce(defaults.debounce);
+            }
+        }
+    }
+
+    public get forceDebounce(): number | string | undefined {
+        return this._forceDebounce;
+    }
+
     public async addTask(taskDef: ReactiveTask<Document>): Promise<void> {
         if (this.isRunning) {
             throw new Error('Cannot add task after scheduler has started.');
@@ -229,6 +276,10 @@ export class ReactiveTaskScheduler {
             onInfo,
             onError,
         );
+
+        if (typeof this._forceDebounce === 'number') {
+            this.taskPlanner.setForceDebounce(this._forceDebounce);
+        }
 
         this.leaderElector = new LeaderElector(
             globalsCollection,

@@ -86,6 +86,22 @@ export class ConcurrentRunner {
         }
     }
 
+    public updateAllSources(options: Partial<SourceOptions>): void {
+        for (const state of this.sources.values()) {
+            state.options = { ...state.options, ...options };
+            // If we are lowering the minPollMs, we should probably also lower the current backoff
+            // to respect the new settings immediately.
+            if (options.minPollMs !== undefined && state.currentBackoff > options.minPollMs) {
+                state.currentBackoff = options.minPollMs;
+            }
+            if (options.maxPollMs !== undefined && state.currentBackoff > options.maxPollMs) {
+                state.currentBackoff = options.maxPollMs;
+            }
+        }
+        // Wake up everyone to pick up new schedule/backoff
+        this.wakeUpAllWorkers();
+    }
+
     private async runWorker(): Promise<void> {
         while (this.isRunning) {
             const now = Date.now();
