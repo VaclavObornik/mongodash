@@ -171,3 +171,100 @@ describe('ReactiveTaskScheduler - Error Handling', () => {
         }, 10000);
     });
 });
+
+describe('ReactiveTaskScheduler - Replica Set Check', () => {
+    let instance: ReturnType<typeof getNewInstance>;
+    let mockDb: any;
+    let mockClient: any;
+
+    beforeEach(async () => {
+        // Reset cache to ensure fresh imports and isolation from previous tests
+        jest.resetModules();
+
+        // Setup default mocks
+        mockDb = {
+            command: jest.fn().mockResolvedValue({ setName: 'rs0' }),
+            watch: jest.fn().mockReturnValue({
+                on: jest.fn(),
+                close: jest.fn(),
+            }),
+            collection: jest.fn().mockReturnValue({
+                createIndex: jest.fn(),
+                findOne: jest.fn(),
+                updateOne: jest.fn(),
+            }),
+            databaseName: 'test_db',
+        };
+
+        mockClient = {
+            db: jest.fn().mockReturnValue(mockDb),
+        };
+
+        // Mock the module BEFORE importing anything else that might depend on it
+        jest.mock('../../src/getMongoClient', () => ({
+            getMongoClient: jest.fn(() => mockClient),
+            init: jest.fn(), // We don't want real init either
+        }));
+
+        // Re-import helper which likely imports mongodash/index etc.
+        const helpers = require('../testHelpers');
+        instance = helpers.getNewInstance();
+    });
+
+    afterEach(async () => {
+        jest.unmock('../../src/getMongoClient');
+        if (instance) {
+            await instance.cleanUpInstance();
+        }
+    });
+
+    it('should resolve start() when connected to a replica set (hello returns setName)', async () => {
+        const { getMongoClient } = require('../../src/getMongoClient');
+        getMongoClient.mockReturnValue(mockClient); // Ensure it returns our client
+
+        await instance.initInstance({
+            globalsCollection: '_mongodash_globals',
+            onError: noop,
+            onInfo: noop,
+        });
+
+        // Add a dummy task so planner tries to start
+        const collection = instance.mongodash.getCollection('rsCheckTest');
+        await instance.mongodash.reactiveTask({
+            collection,
+            task: 'testTask',
+            handler: async () => {},
+            debounce: 0,
+        });
+
+        // Should success
+        await expect(instance.mongodash.startReactiveTasks()).resolves.not.toThrow();
+        await instance.mongodash.stopReactiveTasks();
+    }, 10000);
+
+    it('should reject start() when NOT connected to a replica set (hello returns no setName)', async () => {
+        const { getMongoClient } = require('../../src/getMongoClient');
+
+        // Change mock for this test
+        mockDb.command.mockResolvedValue({}); // No setName
+        getMongoClient.mockReturnValue(mockClient);
+
+        await instance.initInstance({
+            globalsCollection: '_mongodash_globals',
+            onError: noop,
+            onInfo: noop,
+        });
+
+        // Add a dummy task
+        const collection = instance.mongodash.getCollection('rsCheckTestFail');
+        await instance.mongodash.reactiveTask({
+            collection,
+            task: 'testTask2',
+            handler: async () => {},
+            debounce: 0,
+        });
+
+        // Should fail
+        await expect(instance.mongodash.startReactiveTasks()).rejects.toThrow('Reactive tasks can only be started when connected to a MongoDB Replica Set.');
+    }, 10000);
+});
