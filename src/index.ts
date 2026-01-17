@@ -55,6 +55,7 @@ export {
     _scheduler,
 } from './reactiveTasks';
 export { OperationalTaskController, serveDashboard } from './task-management';
+export * from './testing';
 export { isLockAlreadyAcquiredError, LockAlreadyAcquiredError, withLock, WithLockOptions } from './withLock';
 export { PostCommitHook, registerPostCommitHook, withTransaction } from './withTransaction';
 

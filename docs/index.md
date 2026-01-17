@@ -29,4 +29,7 @@ features:
   - title: Transactions
     details: Simplified transaction management with automatic session handling.
     link: /with-transaction
+  - title: Testing Utilities
+    details: Helpers for robust E2E testing of asynchronous and reactive flows.
+    link: /testing
 ---

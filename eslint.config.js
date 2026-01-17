@@ -12,7 +12,7 @@ module.exports = [
             '**/reports/**',
             '**/coverage/**',
             '**/node_modules/**',
-            '**/dashboard/**', // Avoid linting the dashboard subproject here
+            'src/dashboard/**', // Avoid linting the dashboard subproject here
             '**/.idea/**',
             '**/.vscode/**',
             'eslint.config.js',

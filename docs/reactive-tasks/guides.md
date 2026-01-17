@@ -294,3 +294,11 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));   // Ctrl+C
 
 > [!NOTE]
 > **Self-Healing Design**: While graceful shutdown is recommended best practice, the system is designed to be resilient. If your application crashes or is forcefully terminated, task locks will automatically expire after a timeout (default: 1 minute), allowing other instances to pick up and process the unfinished tasks. Similarly, leadership locks expire, ensuring another instance takes over. This guarantees eventual task processing even in failure scenarios.
+
+## Testing
+
+Testing asynchronous, event-driven workflows can be challenging. Mongodash provides dedicated test utilities to make this easier.
+
+Use \`waitUntilReactiveTasksIdle\` to robustly wait for all side-effects (including retries and cascading tasks) to finish before making assertions.
+
+See **[Testing Utilities](../testing.md)** for detailed usage and examples.
