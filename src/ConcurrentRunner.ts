@@ -29,6 +29,7 @@ export class ConcurrentRunner {
     private workers: Promise<void>[] = [];
     private wakeUpSignals: (() => void)[] = [];
     private tryRunATask: TryRunATaskCallback | null = null;
+    private _activeWorkerCount = 0;
 
     constructor(
         options: ConcurrentRunnerOptions,
@@ -109,9 +110,12 @@ export class ConcurrentRunner {
                 this.prolongNextRun(state.name);
 
                 try {
+                    this._activeWorkerCount++;
                     await this.tryRunATask!(state.name);
                 } catch (e) {
                     this.onError(e as Error);
+                } finally {
+                    this._activeWorkerCount--;
                 }
             } else {
                 // No source is ready to run. Sleep until the nearest scheduled time.
@@ -168,5 +172,9 @@ export class ConcurrentRunner {
                 wakeUp();
             }
         }
+    }
+
+    public get activeWorkers(): number {
+        return this._activeWorkerCount;
     }
 }

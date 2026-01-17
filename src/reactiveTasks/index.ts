@@ -326,6 +326,15 @@ export class ReactiveTaskScheduler {
     public getRegistry(): ReactiveTaskRegistry {
         return this.registry;
     }
+
+    // --- INTERNAL GETTERS FOR TESTING ---
+    public get concurrentRunnerInstance(): ConcurrentRunner | undefined {
+        return this.concurrentRunner;
+    }
+
+    public get taskPlannerInstance(): ReactiveTaskPlanner | undefined {
+        return this.taskPlanner;
+    }
 }
 
 // --- SINGLETON INSTANCE ---

@@ -47,7 +47,7 @@ describe('Dashboard Logging', () => {
         const controller = new OperationalTaskController(mongodash._scheduler);
 
         // Define a query
-        const query = { status: 'failed' };
+        // const query = { status: 'failed' };
 
         await controller.retryReactiveTasks({ status: 'failed' });
 
