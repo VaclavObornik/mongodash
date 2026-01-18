@@ -185,4 +185,101 @@ describe('waitUntilReactiveTasksIdle', () => {
 
         expect(attempts).toBe(1);
     });
+
+    describe('Isolation (whitelist)', () => {
+        it('should wait for matched entity (via separate collection) and ignore others', async () => {
+            let fastTaskProcessed = false;
+
+            // Fast Task on Collection A
+            const fastCollection = instance.mongodash.getCollection('test_idle_source_fast');
+            await reactiveTask({
+                task: 'fast_task',
+                collection: 'test_idle_source_fast',
+                debounce: 10,
+                handler: async () => {
+                    await sleep(50);
+                    fastTaskProcessed = true;
+                },
+            });
+
+            // Slow Task on Collection B
+            const slowCollection = instance.mongodash.getCollection('test_idle_source_slow');
+            await reactiveTask({
+                task: 'slow_task',
+                collection: 'test_idle_source_slow',
+                handler: async () => {
+                    // slowTaskStarted = true;
+                    await sleep(3000);
+                },
+            });
+
+            await startReactiveTasks();
+
+            // Insert docs
+            await fastCollection.insertOne({ _id: new ObjectId() });
+            const slowDoc = { _id: new ObjectId() };
+            await slowCollection.insertOne(slowDoc);
+
+            // Wait for tasks creation (approximate, since we have 2 collections)
+            // We can check the tasks collections which are likely test_idle_source_fast_tasks and test_idle_source_slow_tasks
+            const fastTasksCol = instance.mongodash.getCollection('test_idle_source_fast_tasks');
+            const slowTasksCol = instance.mongodash.getCollection('test_idle_source_slow_tasks');
+
+            while ((await fastTasksCol.countDocuments({})) < 1) await sleep(50);
+            while ((await slowTasksCol.countDocuments({})) < 1) await sleep(50);
+
+            const startStr = Date.now();
+
+            // Wait ONLY for Fast Collection
+            await waitUntilReactiveTasksIdle({
+                whitelist: [{ collection: 'test_idle_source_fast' }],
+                timeoutMs: 5000,
+            });
+
+            const duration = Date.now() - startStr;
+
+            expect(fastTaskProcessed).toBe(true);
+            expect(duration).toBeLessThan(2000);
+
+            // Verify slow task exists
+            const slowTask = await slowTasksCol.findOne({});
+            expect(slowTask).toBeTruthy();
+            expect(['pending', 'processing']).toContain(slowTask!.status);
+        });
+
+        it('should wait for ALL entities in collection if filter is missing', async () => {
+            let processed = false;
+            await reactiveTask({
+                task: 'sync_doc_all',
+                collection: 'test_idle_source',
+                handler: async () => {
+                    await sleep(1000); // Slow task
+                    processed = true;
+                },
+            });
+
+            await startReactiveTasks();
+
+            const docC = { _id: new ObjectId(), name: 'Doc C' };
+            await sourceCol.insertOne(docC);
+
+            // Wait for task creation
+            while ((await tasksCol.countDocuments({})) < 1) {
+                await sleep(50);
+            }
+
+            const startStr = Date.now();
+
+            // Wait with whitelist but NO filter -> Should wait for all tasks in this collection
+            await waitUntilReactiveTasksIdle({
+                whitelist: [{ collection: 'test_idle_source' }],
+            });
+
+            const duration = Date.now() - startStr;
+
+            expect(processed).toBe(true);
+            // Must have waited at least the handler duration
+            expect(duration).toBeGreaterThanOrEqual(1000);
+        });
+    });
 });
