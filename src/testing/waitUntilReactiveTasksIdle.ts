@@ -1,5 +1,8 @@
+import * as _debug from 'debug';
 import { ReactiveTaskStatus, _scheduler } from '../reactiveTasks';
 import { waitUntil, WaitUntilOptions } from './waitUntil';
+
+const debug = _debug('mongodash:testing');
 
 /**
  * Waits until the reactive task system is idle.
@@ -23,12 +26,14 @@ export async function waitUntilReactiveTasksIdle(customOptions: Partial<WaitUnti
         // Accessing private planner via exposed getter for testing
         const planner = _scheduler.taskPlannerInstance;
         if (planner && !planner.isEmpty) {
+            debug('Planner not empty');
             return false;
         }
 
         // 2. Check Active Workers (Runner)
         const runner = _scheduler.concurrentRunnerInstance;
         if (runner && runner.activeWorkers > 0) {
+            debug(`Active workers: ${runner.activeWorkers}`);
             return false;
         }
 
@@ -68,6 +73,7 @@ export async function waitUntilReactiveTasksIdle(customOptions: Partial<WaitUnti
             });
 
             if (count > 0) {
+                debug(`Collection ${entry.tasksCollection.collectionName} has ${count} active tasks`);
                 return false;
             }
         }
