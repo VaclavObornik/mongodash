@@ -48,6 +48,18 @@ await waitUntilReactiveTasksIdle({
 });
 ```
 
+### Isolation with Whitelist
+
+When running parallel tests, you can use the `whitelist` option to wait only for specific tasks/collections:
+
+```typescript
+await waitUntilReactiveTasksIdle({
+    whitelist: [
+        { collection: 'users', filter: { _id: userId } },  // Wait for specific user
+        { collection: 'orders', task: 'processOrder' },     // Wait for specific task
+    ]
+});
+
 ## `assertNoReactiveTaskErrors`
 
 Ensures that no reactive tasks have failed during your test execution. This is critical for catching "silent failures" where a task failed but didn't crash the application or the test.
@@ -79,7 +91,11 @@ it('should process successfully', async () => {
 ```typescript
 await assertNoReactiveTaskErrors({
     since: startTime, // Required: Check for errors after this time
-    sourceDocIds: [docId], // Optional: Limit check to specific source documents
+    // Optional: Only check specific tasks (ignore background noise)
+    whitelist: [{
+        collection: 'users',
+        filter: { _id: userId }
+    }],
     excludeErrors: [ // Optional: Allow known errors (strings or RegEx)
         'Expected Failure',
         /Authorization Error/

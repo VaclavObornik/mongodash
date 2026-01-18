@@ -1,4 +1,4 @@
-import { Filter } from 'mongodb';
+import { Document, Filter } from 'mongodb';
 import { ReactiveTaskRecord, ReactiveTaskScheduler, _scheduler } from '../reactiveTasks';
 
 export interface AssertNoReactiveTaskErrorsOptions {
@@ -9,11 +9,21 @@ export interface AssertNoReactiveTaskErrorsOptions {
     since: Date;
 
     /**
-     * Optional: Check only tasks related to these specific source documents.
-     * Useful when other tests might be generating noise in the background.
-     * Supports generic ID types (ObjectId, string, number).
+     * Optional: Check only tasks related to specific entities.
+     * If provided, errors in collections/tasks not matching the whitelist are ignored.
      */
-    sourceDocIds?: unknown[];
+    whitelist?: Array<{
+        collection: string;
+        /**
+         * Filter to find relevant documents.
+         * If not provided, ALL documents in the collection are considered (use carefully!).
+         */
+        filter?: Filter<Document>;
+        /**
+         * Optional task name filter.
+         */
+        task?: string;
+    }>;
 
     /**
      * Optional: Whitelist specific errors.
@@ -49,21 +59,63 @@ export async function assertNoReactiveTaskErrors(options: AssertNoReactiveTaskEr
         at: Date;
     }> = [];
 
+    const hasWhitelist = options.whitelist && options.whitelist.length > 0;
+
     for (const entry of entries) {
+        // If whitelist is active, check if this collection is relevant
+        let whitelistFilter: Filter<ReactiveTaskRecord> | null = null;
+        if (hasWhitelist) {
+            const rules = options.whitelist!.filter((rule) => rule.collection === entry.sourceCollection.collectionName);
+
+            if (rules.length === 0) {
+                // Whitelist active but no rules for this collection -> skip it
+                continue;
+            }
+
+            const criteria: Array<Filter<ReactiveTaskRecord>> = [];
+            let matchAll = false;
+
+            for (const rule of rules) {
+                let ruleIds: unknown[] | null = null;
+
+                if (rule.filter) {
+                    const matchingDocs = (await entry.sourceCollection.find(rule.filter, { projection: { _id: 1 } }).toArray()) as Document[];
+                    ruleIds = matchingDocs.map((d) => d._id);
+                }
+
+                if (ruleIds === null && !rule.task) {
+                    // Match all in this collection
+                    matchAll = true;
+                    break;
+                }
+
+                const ruleCriteria: Filter<ReactiveTaskRecord> = {};
+                if (rule.task) {
+                    ruleCriteria.task = rule.task;
+                }
+                if (ruleIds !== null) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ruleCriteria.sourceDocId = { $in: ruleIds as any[] };
+                }
+                criteria.push(ruleCriteria);
+            }
+
+            if (!matchAll) {
+                if (criteria.length > 0) {
+                    whitelistFilter = { $or: criteria };
+                } else {
+                    // Rules matched collection but filters matched nothing -> skip
+                    continue;
+                }
+            }
+        }
+
         // Build independent query for each collection
-        const query: Filter<ReactiveTaskRecord> = {
-            // Optimization: Filter at database level for faster lookup
-            $or: [
-                { 'executionHistory.status': 'failed', 'executionHistory.at': { $gte: options.since } },
-                // Also check lastError if it happened recently (though executionHistory covers history)
-                // We rely on executionHistory for the time-based check.
-            ],
+        const baseQuery: Filter<ReactiveTaskRecord> = {
+            $or: [{ 'executionHistory.status': 'failed', 'executionHistory.at': { $gte: options.since } }],
         };
 
-        if (options.sourceDocIds && options.sourceDocIds.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            query.sourceDocId = { $in: options.sourceDocIds as any[] };
-        }
+        const query = whitelistFilter ? { $and: [baseQuery, whitelistFilter] } : baseQuery;
 
         const tasksWithHistory = await entry.tasksCollection.find(query).toArray();
 
@@ -78,7 +130,7 @@ export async function assertNoReactiveTaskErrors(options: AssertNoReactiveTaskEr
 
                 const errorMessage = item.error || 'Unknown error';
 
-                // 3. Check Whitelist
+                // 3. Check Whitelist (excludeErrors)
                 let isExcluded = false;
                 if (options.excludeErrors) {
                     for (const pattern of options.excludeErrors) {

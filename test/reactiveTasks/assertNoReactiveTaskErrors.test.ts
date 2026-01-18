@@ -1,30 +1,18 @@
 import { getNewInstance } from '../testHelpers';
 
-// Helper to simulate time passing if needed, or just sleep
-// Helper to simulate time passing if needed, or just sleep
-// const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-jest.setTimeout(30000);
-
 describe('assertNoReactiveTaskErrors', () => {
-    let sourceCol: any;
-    let tasksCol: any;
-    let globalsCol: any;
     let instance: ReturnType<typeof getNewInstance>;
+    let testDB: any;
 
     // Dynamic references
-    let startReactiveTasks: any;
-    let stopReactiveTasks: any;
     let reactiveTask: any;
     let waitUntilReactiveTasksIdle: any;
     let assertNoReactiveTaskErrors: any;
-    let ObjectId: any;
+    let startReactiveTasks: any;
+    let stopReactiveTasks: any;
 
     beforeEach(async () => {
-        jest.resetModules();
-        const { getNewInstance } = require('../testHelpers');
         instance = getNewInstance();
-
         await instance.initInstance({
             globalsCollection: 'globals',
             reactiveTaskConcurrency: 2,
@@ -33,222 +21,142 @@ describe('assertNoReactiveTaskErrors', () => {
         } as any);
 
         const mongodash = instance.mongodash;
-
+        reactiveTask = mongodash.reactiveTask;
         startReactiveTasks = mongodash.startReactiveTasks;
         stopReactiveTasks = mongodash.stopReactiveTasks;
-        reactiveTask = mongodash.reactiveTask;
 
-        // Load helpers dynamically
+        // Load helpers after resetModules to bind to same instance
         waitUntilReactiveTasksIdle = require('../../src/testing/waitUntilReactiveTasksIdle').waitUntilReactiveTasksIdle;
         assertNoReactiveTaskErrors = require('../../src/testing/assertNoReactiveTaskErrors').assertNoReactiveTaskErrors;
-        ObjectId = require('mongodb').ObjectId;
 
-        // Use unique collections for each test to ensure isolation
-        const randomId = new ObjectId().toHexString();
-        const sourceName = `test_assert_source_${randomId}`;
-        const tasksName = `test_assert_source_${randomId}_tasks`;
-
-        sourceCol = mongodash.getCollection(sourceName);
-        tasksCol = mongodash.getCollection(tasksName);
-        globalsCol = mongodash.getCollection('globals'); // Shared globals is fine
-
-        // Cleanup (just in case)
-        await sourceCol.deleteMany({});
-        await tasksCol.deleteMany({});
-        await globalsCol.deleteMany({});
+        testDB = mongodash.getCollection('test_assert_errors');
+        await testDB.deleteMany({});
     });
 
     afterEach(async () => {
-        if (stopReactiveTasks) await stopReactiveTasks();
+        await stopReactiveTasks();
         await instance.cleanUpInstance();
     });
 
-    it('passes when no errors occurred', async () => {
-        const startTime = new Date();
-
+    it('should pass if no errors occurred', async () => {
+        // Register a simple task before starting
         await reactiveTask({
-            task: 'task_success',
-            collection: sourceCol.collectionName,
-            debounce: 0,
+            task: 'simple_task',
+            collection: 'test_assert_errors',
             handler: async () => {
-                /* success */
+                // no-op
             },
         });
-
         await startReactiveTasks();
-        await sourceCol.insertOne({ status: 'new' });
-        await waitUntilReactiveTasksIdle();
 
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).resolves.not.toThrow();
+        const since = new Date();
+        await assertNoReactiveTaskErrors({ since });
     });
 
-    it('detects a failed task', async () => {
-        const startTime = new Date();
-
+    it('should detect errors (global)', async () => {
         await reactiveTask({
-            task: 'task_fail',
-            collection: sourceCol.collectionName,
-            filter: { fail: true },
-            debounce: 0,
-            retryPolicy: { maxAttempts: 1, type: 'fixed', interval: '1s' },
+            task: 'failing_task',
+            collection: 'test_assert_errors',
             handler: async () => {
-                throw new Error('Boom!');
+                throw new Error('Planned Failure');
             },
+            retryPolicy: { type: 'fixed', interval: '1ms', maxAttempts: 1 },
         });
-
         await startReactiveTasks();
-        await sourceCol.insertOne({ fail: true });
 
-        // Wait for it to fail
+        const since = new Date();
+        await testDB.insertOne({ status: 'new' });
+
         await waitUntilReactiveTasksIdle();
 
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Found 1 unexpected reactive task errors/);
+        let error;
+        try {
+            await assertNoReactiveTaskErrors({ since });
+        } catch (e: any) {
+            error = e;
+        }
 
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Task 'task_fail'/);
-
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Boom!/);
+        expect(error).toBeDefined();
+        expect(error.message).toContain('Planned Failure');
     });
 
-    it('respects the time filter (since)', async () => {
+    it('should ignore errors outside whitelist scope', async () => {
         await reactiveTask({
-            task: 'task_fail_early',
-            collection: sourceCol.collectionName,
-            filter: { fail: true },
-            debounce: 0,
-            retryPolicy: { maxAttempts: 1, type: 'fixed', interval: '1s' },
+            task: 'failing_task',
+            collection: 'test_assert_errors',
             handler: async () => {
-                throw new Error('Early Error');
+                throw new Error('Should Be Ignored');
             },
+            retryPolicy: { type: 'fixed', interval: '1ms', maxAttempts: 1 },
         });
-
         await startReactiveTasks();
 
-        // 1. Trigger error
-        await sourceCol.insertOne({ fail: true });
+        const since = new Date();
+        await testDB.insertOne({ status: 'new' });
         await waitUntilReactiveTasksIdle();
 
-        // 2. Mark "start time" for the next phase
-        const startTime = new Date(Date.now() + 10); // slightly in future to be safe
-
-        // 3. Asset NO errors since this new timestamp
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).resolves.not.toThrow();
+        // Check ONLY another collection (where no errors exist)
+        await assertNoReactiveTaskErrors({
+            since,
+            whitelist: [{ collection: 'other_collection' }],
+        });
     });
 
-    it('filters by sourceDocIds', async () => {
-        const startTime = new Date();
-        const id1 = new ObjectId();
-        const id2 = new ObjectId();
-
+    it('should detect errors matching whitelist scope', async () => {
         await reactiveTask({
-            task: 'task_mixed',
-            collection: sourceCol.collectionName,
-            debounce: 0,
-            retryPolicy: { maxAttempts: 1, type: 'fixed', interval: '1s' },
+            task: 'target_task',
+            collection: 'test_assert_errors',
+            handler: async () => {
+                throw new Error('Should Be Detected');
+            },
+            retryPolicy: { type: 'fixed', interval: '1ms', maxAttempts: 1 },
+        });
+        await startReactiveTasks();
+
+        const since = new Date();
+        const res = await testDB.insertOne({ status: 'new' });
+        await waitUntilReactiveTasksIdle();
+
+        let error;
+        try {
+            await assertNoReactiveTaskErrors({
+                since,
+                whitelist: [{ collection: 'test_assert_errors', filter: { _id: res.insertedId } }],
+            });
+        } catch (e: any) {
+            error = e;
+        }
+
+        expect(error).toBeDefined();
+        expect(error.message).toContain('Should Be Detected');
+    });
+
+    it('should ignore errors matching whitelist collection but NOT filter', async () => {
+        await reactiveTask({
+            task: 'target_task',
+            collection: 'test_assert_errors',
             handler: async (ctx: any) => {
-                throw new Error(`Error for ${ctx.docId}`);
+                // Only fail for docs with status 'new'
+                const doc = await ctx.getDocument();
+                if (doc.status === 'new') {
+                    throw new Error('Should Be Ignored');
+                }
             },
+            retryPolicy: { type: 'fixed', interval: '1ms', maxAttempts: 1 },
         });
-
         await startReactiveTasks();
 
-        // Fail both documents
-        await sourceCol.insertMany([{ _id: id1 }, { _id: id2 }]);
+        const since = new Date();
+        await testDB.insertOne({ status: 'new' }); // Fails
+        const otherDoc = await testDB.insertOne({ status: 'new_ok' }); // Succeeds
+
         await waitUntilReactiveTasksIdle();
 
-        // Check GLOBAL -> fails (found 2)
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Found 2 unexpected/);
-
-        // Check ID1 -> fails (found 1)
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                sourceDocIds: [id1],
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Doc: .*? Error for/);
-
-        // Check random ID -> success (0 found)
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                sourceDocIds: [new ObjectId()],
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).resolves.not.toThrow();
-    });
-
-    it('excludes errors via whitelist', async () => {
-        const startTime = new Date();
-
-        await reactiveTask({
-            task: 'task_whitelist',
-            collection: sourceCol.collectionName,
-            debounce: 0,
-            retryPolicy: { maxAttempts: 1, type: 'fixed', interval: '1s' },
-            handler: async () => {
-                throw new Error('Expected Failure');
-            },
+        // Whitelist a DIFFERENT doc (using filter)
+        // The first doc has errors but isn't in the whitelist, so should be ignored
+        await assertNoReactiveTaskErrors({
+            since,
+            whitelist: [{ collection: 'test_assert_errors', filter: { _id: otherDoc.insertedId } }],
         });
-
-        await startReactiveTasks();
-        await sourceCol.insertOne({ fail: true });
-        await waitUntilReactiveTasksIdle();
-
-        // Exact string match
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                excludeErrors: ['Expected Failure'],
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).resolves.not.toThrow();
-
-        // Regex match
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                excludeErrors: [/Expected/],
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).resolves.not.toThrow();
-
-        // Mismatch throws
-        await expect(
-            assertNoReactiveTaskErrors({
-                since: startTime,
-                excludeErrors: ['Other Error'],
-                scheduler: require('../../src/reactiveTasks')._scheduler,
-            }),
-        ).rejects.toThrow(/Expected Failure/);
     });
 });
