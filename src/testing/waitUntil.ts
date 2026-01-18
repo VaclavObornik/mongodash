@@ -31,27 +31,12 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
 
     const start = Date.now();
     let deadline = start + timeoutMs;
-    let stableSince = Date.now();
-    let lastTick = Date.now();
+    let stableSince: number | null = null;
 
     debug(`Started. Timeout: ${timeoutMs}ms, Poll: ${pollIntervalMs}ms, Stability: ${stabilityDurationMs}ms`);
 
     while (true) {
         const now = Date.now();
-
-        // --- Time Jump Detection (Debug Support) ---
-        const elapsedSinceLastTick = now - lastTick;
-        // If elapsed time is significantly larger than poll interval (e.g. > 1s),
-        // we assume the process was paused (e.g. at a breakpoint).
-        if (elapsedSinceLastTick > 1000) {
-            const jump = elapsedSinceLastTick - pollIntervalMs; // Approximate jump
-            if (jump > 0) {
-                debug(`Time jump detected: ${jump}ms. Extending deadline.`);
-                deadline += jump;
-            }
-        }
-        lastTick = now;
-        // -------------------------------------------
 
         if (now > deadline) {
             debug(`Timeout! Elapsed: ${now - start}ms`);
@@ -63,11 +48,7 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
             result = await condition();
         } catch (err) {
             debug(`Condition threw error:`, err);
-            // error is ignored
-            result = false; // Condition failing throws implies not met? Or should we propagate?
-            // Usually waitUntil swallows errors unless critical. Let's assume false.
-            // But if it's a logic error in condition, maybe we should throw.
-            // For now, let's treat throw as false for robustness in shaky tests.
+            result = false;
         }
 
         if (result) {
@@ -75,24 +56,33 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
                 debug(`Condition met immediately.`);
                 return;
             }
-            if (now - stableSince >= stabilityDurationMs) {
+            if (stableSince === null) {
+                stableSince = now;
+            } else if (now - stableSince >= stabilityDurationMs) {
                 debug(`Condition stable for ${now - stableSince}ms. Done.`);
                 return;
             }
-            // Condition is true but haven't been stable long enough
-            // Continue loop
         } else {
-            // Condition failed, reset stability timer
-            if (stableSince !== now) {
-                // Avoid spamming log every tick if it was already failing
-                // Actually, stableSince is reset to 'now' every time it fails?
-                // No, only when it WAS true and becomes false?
-                // Original code: stableSince = now; on else.
-                // So if it keeps failing, stableSince keeps moving forward.
+            if (stableSince !== null) {
+                debug(`Condition failed, resetting stability timer.`);
             }
-            stableSince = now;
+            stableSince = null;
         }
 
+        // --- Time Jump Detection (Debug Support) ---
+        // Only measure time jump DURING the sleep, to avoid counting slow condition checks as "debugger pauses".
+        const sleepStart = Date.now();
         await new Promise((r) => setTimeout(r, pollIntervalMs));
+        const sleepEnd = Date.now();
+        const actualSleep = sleepEnd - sleepStart;
+
+        // If actual sleep is significantly larger than requested (e.g. > 1s extra),
+        // we assume the process was paused (e.g. at a breakpoint) or system was suspended.
+        if (actualSleep > pollIntervalMs + 1000) {
+            const jump = actualSleep - pollIntervalMs;
+            debug(`Time jump detected: ${jump}ms. Extending deadline.`);
+            deadline += jump;
+        }
+        // -------------------------------------------
     }
 }
