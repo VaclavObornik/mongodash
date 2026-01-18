@@ -1,3 +1,6 @@
+import * as _debug from 'debug';
+const debug = _debug('mongodash:testing');
+
 export interface WaitUntilOptions {
     /**
      * Maximum time to wait for the condition to become true.
@@ -31,6 +34,8 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
     let stableSince = Date.now();
     let lastTick = Date.now();
 
+    debug(`Started. Timeout: ${timeoutMs}ms, Poll: ${pollIntervalMs}ms, Stability: ${stabilityDurationMs}ms`);
+
     while (true) {
         const now = Date.now();
 
@@ -41,6 +46,7 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
         if (elapsedSinceLastTick > 1000) {
             const jump = elapsedSinceLastTick - pollIntervalMs; // Approximate jump
             if (jump > 0) {
+                debug(`Time jump detected: ${jump}ms. Extending deadline.`);
                 deadline += jump;
             }
         }
@@ -48,13 +54,15 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
         // -------------------------------------------
 
         if (now > deadline) {
+            debug(`Timeout! Elapsed: ${now - start}ms`);
             throw new Error(`waitUntil timeout after ${timeoutMs}ms (adjusted for pauses)`);
         }
 
         let result: boolean;
         try {
             result = await condition();
-        } catch {
+        } catch (err) {
+            debug(`Condition threw error:`, err);
             // error is ignored
             result = false; // Condition failing throws implies not met? Or should we propagate?
             // Usually waitUntil swallows errors unless critical. Let's assume false.
@@ -64,15 +72,24 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, opt
 
         if (result) {
             if (stabilityDurationMs === 0) {
+                debug(`Condition met immediately.`);
                 return;
             }
             if (now - stableSince >= stabilityDurationMs) {
+                debug(`Condition stable for ${now - stableSince}ms. Done.`);
                 return;
             }
             // Condition is true but haven't been stable long enough
             // Continue loop
         } else {
             // Condition failed, reset stability timer
+            if (stableSince !== now) {
+                // Avoid spamming log every tick if it was already failing
+                // Actually, stableSince is reset to 'now' every time it fails?
+                // No, only when it WAS true and becomes false?
+                // Original code: stableSince = now; on else.
+                // So if it keeps failing, stableSince keeps moving forward.
+            }
             stableSince = now;
         }
 
