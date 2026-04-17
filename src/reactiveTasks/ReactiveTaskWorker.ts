@@ -173,6 +173,7 @@ export class ReactiveTaskWorker {
             expectedInitialValue: taskRecord.nextRunAt,
             onLockLost: () => {
                 lockLost = true;
+                this.metricsCollector?.recordLockLost(taskRecord.task);
                 onInfo({
                     message: `Reactive task '${taskRecord.task}' lock lost - another worker took over (likely visibility timeout elapsed). Skipping finalize to preserve new claim.`,
                     taskId: taskRecord._id.toString(),

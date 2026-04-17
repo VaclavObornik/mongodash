@@ -21,6 +21,10 @@ const METRIC_NAMES = {
     GLOBAL_LAG: 'reactive_tasks_global_lag_seconds',
     CHANGE_STREAM_LAG: 'reactive_tasks_change_stream_lag_seconds',
     LAST_RECONCILIATION: 'reactive_tasks_last_reconciliation_timestamp_seconds',
+    LEADER_ELECTIONS: 'reactive_tasks_leader_elections_total',
+    LOCK_LOST: 'reactive_tasks_lock_lost_total',
+    STREAM_ERRORS: 'reactive_tasks_stream_errors_total',
+    FLUSH_FAILURES: 'reactive_tasks_flush_failures_total',
 };
 
 const REGISTRY_DOC_ID = 'reactive_tasks_metrics_registry';
@@ -74,6 +78,10 @@ export class MetricsCollector {
     // Local Metrics
     private metricDuration?: Histogram;
     private metricRetries?: Counter;
+    private metricLeaderElections?: Counter;
+    private metricLockLost?: Counter;
+    private metricStreamErrors?: Counter;
+    private metricFlushFailures?: Counter;
 
     // State
     private pushInterval?: NodeJS.Timeout;
@@ -139,6 +147,37 @@ export class MetricsCollector {
             METRIC_NAMES.RETRIES,
             this.promClientModule.Counter,
             { help: 'Total number of retries attempted.', labelNames: ['task_name'] },
+            this.localPromRegistry!,
+        );
+
+        this.metricLeaderElections = this.getOrCreateMetric(
+            METRIC_NAMES.LEADER_ELECTIONS,
+            this.promClientModule.Counter,
+            { help: 'Number of times this instance became leader. A high rate indicates leader flapping.', labelNames: [] },
+            this.localPromRegistry!,
+        );
+
+        this.metricLockLost = this.getOrCreateMetric(
+            METRIC_NAMES.LOCK_LOST,
+            this.promClientModule.Counter,
+            {
+                help: 'Number of tasks whose execution lock was stolen by another worker (CAS detection). Indicates visibility-timeout pressure or a slow worker.',
+                labelNames: ['task_name'],
+            },
+            this.localPromRegistry!,
+        );
+
+        this.metricStreamErrors = this.getOrCreateMetric(
+            METRIC_NAMES.STREAM_ERRORS,
+            this.promClientModule.Counter,
+            { help: 'Number of change-stream errors observed by this instance.', labelNames: [] },
+            this.localPromRegistry!,
+        );
+
+        this.metricFlushFailures = this.getOrCreateMetric(
+            METRIC_NAMES.FLUSH_FAILURES,
+            this.promClientModule.Counter,
+            { help: 'Number of planner flush batches that failed and required a stream restart.', labelNames: [] },
             this.localPromRegistry!,
         );
     }
@@ -217,6 +256,26 @@ export class MetricsCollector {
     public recordRetry(task: string): void {
         if (!this.enabled || !this.metricRetries) return;
         this.metricRetries.inc({ task_name: task });
+    }
+
+    public recordLeaderElection(): void {
+        if (!this.enabled || !this.metricLeaderElections) return;
+        this.metricLeaderElections.inc();
+    }
+
+    public recordLockLost(task: string): void {
+        if (!this.enabled || !this.metricLockLost) return;
+        this.metricLockLost.inc({ task_name: task });
+    }
+
+    public recordStreamError(): void {
+        if (!this.enabled || !this.metricStreamErrors) return;
+        this.metricStreamErrors.inc();
+    }
+
+    public recordFlushFailure(): void {
+        if (!this.enabled || !this.metricFlushFailures) return;
+        this.metricFlushFailures.inc();
     }
 
     // ========================================================================

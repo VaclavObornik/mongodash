@@ -257,6 +257,7 @@ export class ReactiveTaskScheduler {
                         message: `Change Stream error.`,
                         code: CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
                     });
+                    this.metricsCollector?.recordStreamError();
                     // If stream fails, we should probably force lose leader to let someone else try,
                     // or just restart if we are still leader.
                     // LeaderElector handles its own loop.
@@ -268,6 +269,9 @@ export class ReactiveTaskScheduler {
                     setTimeout(() => {
                         this.concurrentRunner?.speedUp(tasksCollectionName);
                     }, debounceMs);
+                },
+                onFlushFailure: () => {
+                    this.metricsCollector?.recordFlushFailure();
                 },
             },
             {
@@ -294,6 +298,7 @@ export class ReactiveTaskScheduler {
             },
             {
                 onBecomeLeader: async () => {
+                    this.metricsCollector?.recordLeaderElection();
                     const tasks = this.registry.getAllTasks();
                     if (tasks.length === 0) {
                         debug(`[Scheduler ${this.instanceId}] Became leader, but no tasks registered. Skipping planner start.`);

@@ -40,6 +40,12 @@ type FilteredChangeStreamDocument = Pick<
 export interface PlannerCallbacks {
     onStreamError: () => void;
     onTaskPlanned: (tasksCollectionName: string, debounceMs: number) => void;
+    /**
+     * Fired when a batch of change-stream events could not be planned into the
+     * task collections. Optional - when omitted, the outer stream-restart path
+     * (via `onStreamError`) is the only recovery signal.
+     */
+    onFlushFailure?: () => void;
 }
 
 /**
@@ -359,6 +365,7 @@ export class ReactiveTaskPlanner {
             // Mark as failed so heartbeat does not advance the resume token
             // past events we could not plan.
             this.lastFlushFailed = true;
+            this.callbacks.onFlushFailure?.();
             // Trigger a stream restart so the planner resumes from the last
             // successfully-saved token and reconciliation runs. Without this
             // a later successful flush would save a newer token and bury the
