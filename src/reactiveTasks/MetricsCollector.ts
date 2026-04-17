@@ -340,12 +340,6 @@ export class MetricsCollector {
             registries.push(this.globalStatsRegistry);
         }
 
-        // The following line was added as per instruction, but 'stats' is not defined in this scope.
-        // It also has a syntax error (missing closing brace).
-        // Assuming it was meant to be a placeholder or part of a different context,
-        // it's commented out to maintain syntactical correctness of the file.
-        // if (stats.statuses.find((s) => s._id === 'failed')) {return null;
-
         if (registries.length === 0) return null;
         if (registries.length === 1) return registries[0];
 
