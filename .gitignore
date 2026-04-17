@@ -11,3 +11,6 @@ reports
 
 dashboard/node_modules
 dashboard/dist
+
+# Claude Code worktree scratch space
+.claude/worktrees
