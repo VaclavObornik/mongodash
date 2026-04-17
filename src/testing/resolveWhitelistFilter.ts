@@ -59,6 +59,13 @@ export async function resolveWhitelistFilter(
             return 'matchAll';
         }
 
+        // A filter-scoped rule that matched zero source documents can never
+        // contribute tasks of its own. Drop it so we do not issue a
+        // `$in: []` query for nothing.
+        if (ruleIds !== null && ruleIds.length === 0 && !rule.task) {
+            continue;
+        }
+
         const ruleCriteria: Filter<ReactiveTaskRecord> = {};
         if (rule.task) {
             ruleCriteria.task = rule.task;

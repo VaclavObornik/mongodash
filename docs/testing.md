@@ -137,3 +137,52 @@ configureForTesting({
     minBatchIntervalMs: 50
 });
 ```
+
+## `waitUntil`
+
+Generic helper that resolves once a condition function returns `true`. Useful when
+`waitUntilReactiveTasksIdle` is too broad (for example when you need to wait for an
+HTTP side effect or an external queue) or as a building block for your own testing
+utilities.
+
+It includes a built-in "time jump detector": if a breakpoint or a suspended laptop
+pauses the event loop for more than a second, the deadline is extended by the
+observed pause so the wait does not falsely time out.
+
+```typescript
+import { waitUntil } from 'mongodash/testing';
+
+await waitUntil(
+    async () => (await getBalance(userId)) === 100,
+    { timeoutMs: 5000, pollIntervalMs: 50, stabilityDurationMs: 100 },
+);
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `timeoutMs` | `10000` | Maximum time before throwing. |
+| `pollIntervalMs` | `50` | How often the condition is evaluated. |
+| `stabilityDurationMs` | `0` | How long the condition must *remain* true before resolving. Prevents flakiness when a state briefly flips true then false. |
+
+## Whitelist rules
+
+Both `waitUntilReactiveTasksIdle` and `assertNoReactiveTaskErrors` accept a
+`whitelist` option of type `WhitelistRule[]`. The type is exported so tests
+can share whitelist definitions across suites:
+
+```typescript
+import type { WhitelistRule } from 'mongodash/testing';
+
+const scopeToUser = (userId: string): WhitelistRule[] => [
+    { collection: 'users', filter: { _id: userId } },
+    { collection: 'notifications', filter: { userId } },
+];
+
+await waitUntilReactiveTasksIdle({ whitelist: scopeToUser(id) });
+await assertNoReactiveTaskErrors({ since, whitelist: scopeToUser(id) });
+```
+
+A rule with neither `filter` nor `task` matches every document and every task in
+that collection ("match-all"). A rule whose `filter` matches zero documents is
+treated as "skip this collection" - useful when the rule is built dynamically from
+a variable that may be empty.
