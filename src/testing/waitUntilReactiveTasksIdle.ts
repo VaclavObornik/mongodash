@@ -1,6 +1,7 @@
 import * as _debug from 'debug';
-import { Document, Filter } from 'mongodb';
+import { Filter } from 'mongodb';
 import { ReactiveTaskRecord, _scheduler } from '../reactiveTasks';
+import { resolveWhitelistFilter, WhitelistRule } from './resolveWhitelistFilter';
 import { waitUntil, WaitUntilOptions } from './waitUntil';
 
 const debug = _debug('mongodash:testing');
@@ -25,18 +26,7 @@ export interface WaitUntilReactiveTasksIdleOptions extends Partial<WaitUntilOpti
      * Global checks (Planner buffer, Active workers) are SKIPPED in this mode to ensure isolation
      * from other running tests.
      */
-    whitelist?: Array<{
-        collection: string;
-        /**
-         * Filter to find relevant documents.
-         * If not provided, ALL documents in the collection are considered (use carefully!).
-         */
-        filter?: Filter<Document>;
-        /**
-         * Optional task name filter.
-         */
-        task?: string;
-    }>;
+    whitelist?: WhitelistRule[];
 }
 
 export async function waitUntilReactiveTasksIdle(customOptions: WaitUntilReactiveTasksIdleOptions = {}): Promise<void> {
@@ -77,53 +67,10 @@ export async function waitUntilReactiveTasksIdle(customOptions: WaitUntilReactiv
             let whitelistFilter: Filter<ReactiveTaskRecord> | null = null;
 
             if (hasWhitelist) {
-                const rules = customOptions.whitelist!.filter((rule) => rule.collection === entry.sourceCollection.collectionName);
-
-                if (rules.length === 0) {
-                    continue;
-                }
-
-                const criteria: Array<Filter<ReactiveTaskRecord>> = [];
-                let matchAll = false;
-
-                for (const rule of rules) {
-                    let ruleIds: unknown[] | null = null;
-
-                    if (rule.filter) {
-                        // If we have a filter, we need to find which docs match it.
-                        // We can't filter tasks directly by source properties efficiently without joining,
-                        // so we find the matching source docs first.
-                        const matchingDocs = (await entry.sourceCollection.find(rule.filter, { projection: { _id: 1 } }).toArray()) as Document[];
-                        ruleIds = matchingDocs.map((d) => d._id);
-                    }
-
-                    if (ruleIds === null && !rule.task) {
-                        // One rule validates 'all', so we wait for everything in this collection
-                        matchAll = true;
-                        break;
-                    }
-
-                    if (rule.task) {
-                        criteria.push({ task: rule.task });
-                    }
-                    if (ruleIds !== null) {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        criteria.push({ sourceDocId: { $in: ruleIds as any[] } });
-                    }
-                }
-
-                if (!matchAll) {
-                    if (criteria.length > 0) {
-                        whitelistFilter = { $or: criteria };
-                    } else {
-                        // Whitelist is active, but we have rules that result in effectively "nothing"
-                        // (e.g. filter returned no docs).
-                        // If we have NO criteria and NO matchAll, it implies we wait for nothing on this collection?
-                        // Or should we treat it as blocking?
-                        // If filter didn't match any doc, then we effectively wait for nothing for that rule.
-                        // If ALL rules resulted in nothing, we continue to next entry.
-                        continue;
-                    }
+                const resolution = await resolveWhitelistFilter(customOptions.whitelist!, entry.sourceCollection);
+                if (resolution === 'skip') continue;
+                if (resolution !== 'matchAll') {
+                    whitelistFilter = resolution;
                 }
             }
 

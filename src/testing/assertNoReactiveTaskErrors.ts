@@ -1,5 +1,6 @@
-import { Document, Filter } from 'mongodb';
+import { Filter } from 'mongodb';
 import { ReactiveTaskRecord, ReactiveTaskScheduler, _scheduler } from '../reactiveTasks';
+import { resolveWhitelistFilter, WhitelistRule } from './resolveWhitelistFilter';
 
 export interface AssertNoReactiveTaskErrorsOptions {
     /**
@@ -12,18 +13,7 @@ export interface AssertNoReactiveTaskErrorsOptions {
      * Optional: Check only tasks related to specific entities.
      * If provided, errors in collections/tasks not matching the whitelist are ignored.
      */
-    whitelist?: Array<{
-        collection: string;
-        /**
-         * Filter to find relevant documents.
-         * If not provided, ALL documents in the collection are considered (use carefully!).
-         */
-        filter?: Filter<Document>;
-        /**
-         * Optional task name filter.
-         */
-        task?: string;
-    }>;
+    whitelist?: WhitelistRule[];
 
     /**
      * Optional: Whitelist specific errors.
@@ -65,48 +55,10 @@ export async function assertNoReactiveTaskErrors(options: AssertNoReactiveTaskEr
         // If whitelist is active, check if this collection is relevant
         let whitelistFilter: Filter<ReactiveTaskRecord> | null = null;
         if (hasWhitelist) {
-            const rules = options.whitelist!.filter((rule) => rule.collection === entry.sourceCollection.collectionName);
-
-            if (rules.length === 0) {
-                // Whitelist active but no rules for this collection -> skip it
-                continue;
-            }
-
-            const criteria: Array<Filter<ReactiveTaskRecord>> = [];
-            let matchAll = false;
-
-            for (const rule of rules) {
-                let ruleIds: unknown[] | null = null;
-
-                if (rule.filter) {
-                    const matchingDocs = (await entry.sourceCollection.find(rule.filter, { projection: { _id: 1 } }).toArray()) as Document[];
-                    ruleIds = matchingDocs.map((d) => d._id);
-                }
-
-                if (ruleIds === null && !rule.task) {
-                    // Match all in this collection
-                    matchAll = true;
-                    break;
-                }
-
-                const ruleCriteria: Filter<ReactiveTaskRecord> = {};
-                if (rule.task) {
-                    ruleCriteria.task = rule.task;
-                }
-                if (ruleIds !== null) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    ruleCriteria.sourceDocId = { $in: ruleIds as any[] };
-                }
-                criteria.push(ruleCriteria);
-            }
-
-            if (!matchAll) {
-                if (criteria.length > 0) {
-                    whitelistFilter = { $or: criteria };
-                } else {
-                    // Rules matched collection but filters matched nothing -> skip
-                    continue;
-                }
+            const resolution = await resolveWhitelistFilter(options.whitelist!, entry.sourceCollection);
+            if (resolution === 'skip') continue;
+            if (resolution !== 'matchAll') {
+                whitelistFilter = resolution;
             }
         }
 
