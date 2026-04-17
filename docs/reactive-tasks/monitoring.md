@@ -59,6 +59,13 @@ The system exposes the following metrics with standardized labels:
 | `reactive_tasks_global_lag_seconds` | Gauge | `task_name` | Age of the oldest `pending` task, measured from `dueAt`. This ensures deferred tasks still reflect their true waiting time. |
 | `reactive_tasks_change_stream_lag_seconds` | Gauge | *none* | Time difference between now and the last processed Change Stream event. |
 | `reactive_tasks_last_reconciliation_timestamp_seconds` | Gauge | *none* | Timestamp when the last full reconciliation (recovery) finished. |
+| `reactive_tasks_leader_elections_total` | Counter | *none* | Number of times this instance became leader. A high rate indicates leader flapping (clock skew, slow heartbeats, network partitions). |
+| `reactive_tasks_lock_lost_total` | Counter | `task_name` | Number of tasks whose execution lock was stolen by another worker (detected via CAS). A non-zero value means work was duplicated; usually a signal to increase `visibilityTimeoutMs` or investigate slow handlers. |
+| `reactive_tasks_stream_errors_total` | Counter | *none* | Number of change-stream errors observed by this instance (disconnects, oplog lost, etc.). |
+| `reactive_tasks_flush_failures_total` | Counter | *none* | Number of planner batches that failed and required a stream restart. Distinct from stream errors: the DB was reachable but the upsert pipeline rejected a batch. |
+
+> [!NOTE]
+> All new counters are **per-instance** (exported via the instance's local registry). In `cluster` mode they are summed across instances at scrape time; in `local` mode each instance reports its own value.
 
 ## Grafana Dashboard
 
