@@ -59,6 +59,10 @@ The system exposes the following metrics with standardized labels:
 | `reactive_tasks_global_lag_seconds` | Gauge | `task_name` | Age of the oldest `pending` task, measured from `dueAt`. This ensures deferred tasks still reflect their true waiting time. |
 | `reactive_tasks_change_stream_lag_seconds` | Gauge | *none* | Time difference between now and the last processed Change Stream event. |
 | `reactive_tasks_last_reconciliation_timestamp_seconds` | Gauge | *none* | Timestamp when the last full reconciliation (recovery) finished. |
+| `reactive_tasks_leader_elections_total` | Counter | *none* | Number of times this instance acquired the leader lock. A high rate indicates leader flapping (clock skew, network partitions, slow heartbeats). |
+| `reactive_tasks_lock_lost_total` | Counter | `task_name` | Number of executions where the visibility lock was detected as stolen via CAS. A non-zero value means a task took longer than `visibilityTimeoutMs` and its work was duplicated. Tune `visibilityTimeoutMs` if this fires regularly. |
+| `reactive_tasks_stream_errors_total` | Counter | *none* | Number of raw change-stream errors observed by this instance. |
+| `reactive_tasks_flush_failures_total` | Counter | *none* | Number of batch-level planner failures that required a stream restart. Distinct from stream errors: the DB was reachable but the upsert pipeline rejected a batch. |
 
 ## Grafana Dashboard
 
