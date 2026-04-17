@@ -97,8 +97,16 @@ export class ReactiveTaskWorker {
         let throttledUntil: Date | undefined;
 
         let isManuallyFinalized = false;
+        let lockLost = false;
 
         const finalizeTaskSuccess = async (duration: number, session?: import('mongodb').ClientSession) => {
+            if (lockLost) {
+                // Lock was stolen mid-handler. The new owner's claim rewrote
+                // nextRunAt; writing completion here would either clobber that
+                // claim or violate the at-least-once contract by marking the
+                // task complete before the new owner finishes.
+                return;
+            }
             this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
@@ -161,7 +169,6 @@ export class ReactiveTaskWorker {
             },
         };
 
-        let lockLost = false;
         const stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs, {
             expectedInitialValue: taskRecord.nextRunAt,
             onLockLost: () => {
@@ -271,13 +278,14 @@ export class ReactiveTaskWorker {
             await stopLock();
             const duration = Date.now() - start;
 
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
-
             if (lockLost) {
-                // Skip finalize to avoid racing with the new owner. See the
-                // success branch above for the reasoning.
+                // Skip both metrics and finalize: the new owner will execute
+                // and record its own metrics. See the success branch above
+                // for the reasoning behind skipping finalize.
                 return;
             }
+
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
 

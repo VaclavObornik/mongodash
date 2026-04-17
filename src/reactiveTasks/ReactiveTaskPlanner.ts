@@ -357,9 +357,13 @@ export class ReactiveTaskPlanner {
         } catch (error) {
             this.onError(error as Error);
             // Mark as failed so heartbeat does not advance the resume token
-            // past events we could not plan. On stream restart we'll resume
-            // from the last successfully-saved token and replay these events.
+            // past events we could not plan.
             this.lastFlushFailed = true;
+            // Trigger a stream restart so the planner resumes from the last
+            // successfully-saved token and reconciliation runs. Without this
+            // a later successful flush would save a newer token and bury the
+            // failed events forever.
+            this.callbacks.onStreamError();
         } finally {
             this.isFlushing = false;
             this.batchFirstEventTime = null;
