@@ -23,7 +23,7 @@ describe('ReactiveTaskScheduler - Error Handling', () => {
             // initInstance already calls configure, so calling it again should throw
             expect(() => {
                 (instance.mongodash as any)._scheduler.configure({});
-            }).toThrow('Cannot configure scheduler after initialization.');
+            }).toThrow(/Cannot configure reactive task scheduler/);
         });
     });
 
