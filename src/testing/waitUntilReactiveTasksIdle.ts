@@ -13,6 +13,11 @@ const debug = _debug('mongodash:testing');
  * 3. No tasks in the database are in a pending or processing state.
  *
  * This enables robust E2E testing by ensuring that all side effects and cascading tasks have finished.
+ *
+ * @remarks
+ * Pending tasks scheduled far in the future (beyond `timeoutMs + stabilityDurationMs + 100ms`)
+ * are treated as "future work" and ignored. This prevents long-running retries (e.g. exponential backoff
+ * pushing `nextRunAt` hours ahead) from blocking the idle check forever.
  */
 export interface WaitUntilReactiveTasksIdleOptions extends Partial<WaitUntilOptions> {
     /**

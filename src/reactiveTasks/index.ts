@@ -127,7 +127,9 @@ export class ReactiveTaskScheduler {
 
     public configure(options: Partial<ReactiveTaskSchedulerOptions>): void {
         if (this.concurrentRunner) {
-            throw new Error('Cannot configure scheduler after initialization.');
+            throw new Error(
+                'Cannot configure reactive task scheduler after it has already been configured. Call configure() (or init()) only once, before startReactiveTasks().',
+            );
         }
         // Configure instanceId if provided
         if (options.instanceId) {

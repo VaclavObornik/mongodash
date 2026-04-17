@@ -33,8 +33,10 @@ export { getMongoClient } from './getMongoClient';
 export { OnError } from './OnError';
 export { processInBatches, ProcessInBatchesOptions, ProcessInBatchesResult } from './processInBatches';
 export {
+    CODE_REACTIVE_TASK_CLEANUP,
     CODE_REACTIVE_TASK_FAILED,
     CODE_REACTIVE_TASK_FINISHED,
+    CODE_REACTIVE_TASK_INITIALIZED,
     CODE_REACTIVE_TASK_LEADER_LOCK_LOST,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
@@ -45,9 +47,14 @@ export {
     countReactiveTasks,
     getPrometheusMetrics,
     getReactiveTasks,
+    PagedResult,
+    PaginationOptions,
     reactiveTask,
     ReactiveTask,
     ReactiveTaskHandler,
+    ReactiveTaskQuery,
+    ReactiveTaskRecord,
+    ReactiveTaskStatus,
     retryReactiveTasks,
     startReactiveTasks,
     stopReactiveTasks,
