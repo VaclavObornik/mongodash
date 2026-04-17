@@ -8,6 +8,7 @@ import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
     CODE_REACTIVE_TASK_FAILED,
     CODE_REACTIVE_TASK_FINISHED,
+    CODE_REACTIVE_TASK_LOCK_LOST,
     CODE_REACTIVE_TASK_STARTED,
     ReactiveTaskCaller,
     ReactiveTaskContext,
@@ -160,7 +161,18 @@ export class ReactiveTaskWorker {
             },
         };
 
-        const stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs);
+        let lockLost = false;
+        const stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs, {
+            expectedInitialValue: taskRecord.nextRunAt,
+            onLockLost: () => {
+                lockLost = true;
+                onInfo({
+                    message: `Reactive task '${taskRecord.task}' lock lost - another worker took over (likely visibility timeout elapsed). Skipping finalize to preserve new claim.`,
+                    taskId: taskRecord._id.toString(),
+                    code: CODE_REACTIVE_TASK_LOCK_LOST,
+                });
+            },
+        });
 
         const processTheTask = async () => {
             const start = Date.now();
@@ -227,6 +239,14 @@ export class ReactiveTaskWorker {
                 debug(`[Scheduler ${this.instanceId}] Throttling task '${taskRecord.task}' until ${throttledUntil.toISOString()}`);
             }
 
+            if (lockLost) {
+                // Another worker took over this task. Skip state transitions to
+                // avoid stomping on the new owner's updates. Side effects done
+                // by the handler have executed (at-least-once), the replacement
+                // worker will run the task again and finalize it.
+                return;
+            }
+
             if (deferredTo) {
                 if (isManuallyFinalized) {
                     onInfo({
@@ -252,6 +272,12 @@ export class ReactiveTaskWorker {
             const duration = Date.now() - start;
 
             this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
+
+            if (lockLost) {
+                // Skip finalize to avoid racing with the new owner. See the
+                // success branch above for the reasoning.
+                return;
+            }
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
 

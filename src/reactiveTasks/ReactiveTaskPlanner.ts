@@ -59,6 +59,7 @@ export class ReactiveTaskPlanner {
     private batchFlushTimer: NodeJS.Timeout | null = null;
     private batchFirstEventTime: number | null = null;
     private isFlushing = false;
+    private lastFlushFailed = false;
     private metaDocId = REACTIVE_TASK_META_DOC_ID;
     private lastClusterTime: number | null = null;
 
@@ -134,8 +135,10 @@ export class ReactiveTaskPlanner {
     }
 
     public async onHeartbeat(): Promise<void> {
-        // Save resume token if stream is running and idle
-        if (this.changeStream && this.isEmpty) {
+        // Save resume token if stream is running and idle.
+        // Skip if the previous flush failed: advancing the token would cause
+        // the un-planned events to be lost forever on resume.
+        if (this.changeStream && this.isEmpty && !this.lastFlushFailed) {
             await this.saveResumeToken(this.changeStream.resumeToken, this.lastClusterTime ? new Date(this.lastClusterTime * 1000) : undefined);
         }
 
@@ -350,10 +353,13 @@ export class ReactiveTaskPlanner {
             if (lastToken) {
                 await this.saveResumeToken(lastToken, lastClusterTime);
             }
+            this.lastFlushFailed = false;
         } catch (error) {
             this.onError(error as Error);
-            // We lost the batch, but we can't easily retry without complicating logic.
-            // The stream continues.
+            // Mark as failed so heartbeat does not advance the resume token
+            // past events we could not plan. On stream restart we'll resume
+            // from the last successfully-saved token and replay these events.
+            this.lastFlushFailed = true;
         } finally {
             this.isFlushing = false;
             this.batchFirstEventTime = null;
@@ -396,48 +402,63 @@ export class ReactiveTaskPlanner {
     }
 
     private async processDeletions(deletedIdsByTask: Map<string, Set<unknown>>): Promise<void> {
-        if (deletedIdsByTask.size > 0) {
-            await Promise.all(
-                Array.from(deletedIdsByTask.entries()).map(async ([taskName, ids]) => {
-                    if (ids.size === 0) return;
+        if (deletedIdsByTask.size === 0) return;
 
-                    const taskDef = this.registry.getTask(taskName);
+        const results = await Promise.allSettled(
+            Array.from(deletedIdsByTask.entries()).map(async ([taskName, ids]) => {
+                if (ids.size === 0) return;
 
-                    if (taskDef) {
-                        // We use deleteOrphanedTasks but limit it to the source IDs we just saw deleted.
-                        // This reuses the EXACT same logic (including keepFor checks) as the background cleaner.
-                        await taskDef.repository.deleteOrphanedTasks(
-                            taskName,
-                            taskDef.sourceCollection.collectionName,
-                            taskDef.filter || {},
-                            taskDef.cleanupPolicyParsed,
-                            () => false, // shouldStop: immediate execution, no need to stop
-                            Array.from(ids),
-                        );
-                    }
-                }),
-            );
-        }
+                const taskDef = this.registry.getTask(taskName);
+
+                if (taskDef) {
+                    // We use deleteOrphanedTasks but limit it to the source IDs we just saw deleted.
+                    // This reuses the EXACT same logic (including keepFor checks) as the background cleaner.
+                    await taskDef.repository.deleteOrphanedTasks(
+                        taskName,
+                        taskDef.sourceCollection.collectionName,
+                        taskDef.filter || {},
+                        taskDef.cleanupPolicyParsed,
+                        () => false, // shouldStop: immediate execution, no need to stop
+                        Array.from(ids),
+                    );
+                }
+            }),
+        );
+
+        this.throwOnAnyRejection(results, 'processDeletions');
     }
 
     private async executeUpsertOperations(idsByCollection: Map<string, Set<unknown>>): Promise<void> {
-        if (idsByCollection.size > 0) {
-            await Promise.all(
-                Array.from(idsByCollection.entries()).map(async ([collectionName, ids]) => {
-                    if (ids.size === 0) return;
-                    try {
-                        await this.ops.executePlanningPipeline(collectionName, Array.from(ids));
-                    } catch (error) {
-                        this.onError(error as Error);
-                    }
-                }),
-            );
+        if (idsByCollection.size === 0) return;
+
+        const results = await Promise.allSettled(
+            Array.from(idsByCollection.entries()).map(async ([collectionName, ids]) => {
+                if (ids.size === 0) return;
+                await this.ops.executePlanningPipeline(collectionName, Array.from(ids));
+            }),
+        );
+
+        this.throwOnAnyRejection(results, 'executeUpsertOperations');
+    }
+
+    private throwOnAnyRejection(results: PromiseSettledResult<unknown>[], context: string): void {
+        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (failures.length === 0) return;
+
+        // Report each failure individually so observers see all errors.
+        for (const f of failures) {
+            this.onError(f.reason as Error);
         }
+
+        // Rethrow so flushTaskBatch can mark the batch as failed and avoid
+        // advancing the resume token past events we could not plan.
+        const firstMsg = failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
+        throw new Error(`${context}: ${failures.length} of ${results.length} operation(s) failed. First error: ${firstMsg}`);
     }
 
     private async handleStreamError(error: MongoError): Promise<void> {
         if (error.code === 280) {
-            this.onError(new Error(`Critical error: Oplog history lost(ChangeStreamHistoryLost).Resetting Resume Token.Original error: ${error.message} `));
+            this.onError(new Error(`Critical error: Oplog history lost (ChangeStreamHistoryLost). Resetting Resume Token. Original error: ${error.message}`));
             await this.globalsCollection.updateOne({ _id: this.metaDocId }, { $unset: { 'streamState.resumeToken': '', reconciliation: '' } });
 
             this.onInfo({
@@ -453,7 +474,7 @@ export class ReactiveTaskPlanner {
             }
         } else {
             this.onInfo({
-                message: `Change Stream error: ${error.message} `,
+                message: `Change Stream error: ${error.message}`,
                 code: CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
                 error: error.message,
             });

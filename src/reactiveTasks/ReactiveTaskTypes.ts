@@ -366,6 +366,7 @@ export interface ReactiveTaskCaller {
 export const CODE_REACTIVE_TASK_STARTED = 'reactiveTaskStarted';
 export const CODE_REACTIVE_TASK_FINISHED = 'reactiveTaskFinished';
 export const CODE_REACTIVE_TASK_FAILED = 'reactiveTaskFailed';
+export const CODE_REACTIVE_TASK_LOCK_LOST = 'reactiveTaskLockLost';
 
 export const CODE_REACTIVE_TASK_PLANNER_STARTED = 'reactiveTaskPlannerStarted';
 export const CODE_REACTIVE_TASK_PLANNER_STOPPED = 'reactiveTaskPlannerStopped';
