@@ -181,19 +181,22 @@ describe('cronTasks - behavior', () => {
 
         it('allows registering tasks before init() - they run once init resolves', async () => {
             const instance = getNewInstance();
-            const { taskId, handler } = makeTask();
+            try {
+                const { taskId, handler } = makeTask();
 
-            const registrationPromise = instance.mongodash.cronTask(taskId, runOnceIn(), handler);
+                const registrationPromise = instance.mongodash.cronTask(taskId, runOnceIn(), handler);
 
-            await wait(150);
-            assert.strictEqual(handler.callCount, 0, 'task must not run before init');
+                await wait(150);
+                assert.strictEqual(handler.callCount, 0, 'task must not run before init');
 
-            await instance.initInstance();
-            await registrationPromise;
-            await waitUntil(() => handler.callCount >= 1, { timeoutMs: 3000, message: 'task runs once init resolves' });
+                await instance.initInstance();
+                await registrationPromise;
+                await waitUntil(() => handler.callCount >= 1, { timeoutMs: 3000, message: 'task runs once init resolves' });
 
-            assert.strictEqual(handler.callCount, 1);
-            await instance.cleanUpInstance();
+                assert.strictEqual(handler.callCount, 1);
+            } finally {
+                await instance.cleanUpInstance();
+            }
         });
 
         it('a newly registered task starts promptly after the current one finishes', async () => {

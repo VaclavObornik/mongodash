@@ -199,10 +199,20 @@ describe('cronTasks - scheduling semantics', () => {
             const task = sinon.spy();
             const registrationTime = Date.now();
 
+            // Return past date only for the 2nd call (the re-schedule after
+            // the 1st run), then distant future so the scheduler doesn't loop
+            // against the DB after the test's assertion point.
             let callIdx = 0;
             const intervalFn = () => {
-                if (callIdx++ === 0) return new Date();
-                return new Date(1970, 0, 1); // in the past
+                if (callIdx === 0) {
+                    callIdx += 1;
+                    return new Date();
+                }
+                if (callIdx === 1) {
+                    callIdx += 1;
+                    return new Date(1970, 0, 1);
+                }
+                return new Date(Date.now() + 24 * 60 * 60 * 1000);
             };
 
             await cronTask(taskId, intervalFn, task);
