@@ -2,7 +2,7 @@ import { ReactiveTaskScheduler } from '../reactiveTasks/index';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { Document, ObjectId } from 'mongodb';
-import { CronTaskQuery, getCronTasksList, triggerCronTask } from '../cronTasks';
+import { CronTaskQuery, getCronTasksList, scheduleCronTaskImmediately } from '../cronTasks';
 import { getMongoClient } from '../getMongoClient';
 import { onInfo } from '../OnInfo';
 import { CODE_MANUAL_TRIGGER, ReactiveTaskQuery, ReactiveTaskStatus } from '../reactiveTasks/ReactiveTaskTypes';
@@ -132,7 +132,7 @@ export class OperationalTaskController {
 
     public async triggerCronTask(body: { taskId: string }) {
         if (!body.taskId) throw new Error('taskId is required');
-        await triggerCronTask(body.taskId);
+        await scheduleCronTaskImmediately(body.taskId);
         onInfo({
             message: `Manual intervention via Dashboard: Triggered Cron Task '${body.taskId}'`,
             code: CODE_MANUAL_TRIGGER,

@@ -1,14 +1,14 @@
 import { ObjectId } from 'mongodb';
-import { CronTaskQuery, getCronTasksList, triggerCronTask } from '../../src/cronTasks';
+import { CronTaskQuery, getCronTasksList, scheduleCronTaskImmediately } from '../../src/cronTasks';
 import { ReactiveTaskScheduler } from '../../src/reactiveTasks/index';
 import { ReactiveTaskManager } from '../../src/reactiveTasks/ReactiveTaskManager';
 import { OperationalTaskController } from '../../src/task-management/OperationalTaskController';
 
-// Mock `getCronTasksList` and `triggerCronTask` from `../cronTasks`
+// Mock `getCronTasksList` and `scheduleCronTaskImmediately` from `../cronTasks`
 // Jest mocking
 jest.mock('../../src/cronTasks', () => ({
     getCronTasksList: jest.fn(),
-    triggerCronTask: jest.fn(),
+    scheduleCronTaskImmediately: jest.fn(),
 }));
 
 describe('OperationalTaskController', () => {
@@ -164,9 +164,9 @@ describe('OperationalTaskController', () => {
     });
 
     describe('triggerCronTask', () => {
-        it('should call triggerCronTask with taskId', async () => {
+        it('should call scheduleCronTaskImmediately with taskId', async () => {
             await controller.triggerCronTask({ taskId: 'cron-1' });
-            expect(triggerCronTask).toHaveBeenCalledWith('cron-1');
+            expect(scheduleCronTaskImmediately).toHaveBeenCalledWith('cron-1');
         });
 
         it('should throw if taskId is missing', async () => {

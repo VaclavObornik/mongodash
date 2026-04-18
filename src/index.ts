@@ -19,6 +19,7 @@ export {
     CronTaskRecord,
     CronTaskStatus,
     getCronTasksList,
+    getRegisteredCronTaskIds,
     Interval,
     runCronTask,
     scheduleCronTaskImmediately,
