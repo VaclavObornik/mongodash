@@ -121,6 +121,7 @@ export async function init(options: InitOptions): Promise<void> {
 
     initCronTasks({
         runCronTasks: options.runCronTasks ?? true,
+        cronTaskConcurrency: options.cronTaskConcurrency ?? 1,
         cronExpressionParserOptions: options.cronExpressionParserOptions ?? {},
         cronTaskCaller: options.cronTaskCaller ?? taskCaller,
         cronTaskFilter: options.cronTaskFilter ?? (() => true),

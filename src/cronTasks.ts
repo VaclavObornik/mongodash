@@ -1,6 +1,7 @@
 // import * as _debug from 'debug';
 import { CronExpressionOptions } from 'cron-parser';
 import { Collection, Document, Filter } from 'mongodb';
+import { ConcurrentRunner } from './ConcurrentRunner';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { initPromise } from './initPromise';
@@ -11,13 +12,26 @@ import { createIntervalFunction } from './parseInterval';
 
 export interface InitOptions {
     runCronTasks: boolean;
+    /**
+     * Maximum number of cron tasks this instance will execute in parallel.
+     *
+     * The default of `1` preserves the historical behaviour: one task is
+     * processed at a time per instance. Raise it when you have many
+     * independent cron tasks and want to avoid head-of-line blocking (a
+     * long-running task delaying unrelated ones).
+     *
+     * Tasks with the same id are always serialised via the per-task lock
+     * (`lockedTill`), so raising this does not cause a single task to run
+     * twice in parallel.
+     */
+    cronTaskConcurrency: number;
     cronExpressionParserOptions: CronExpressionOptions;
     cronTaskCaller: CronTaskCaller;
     cronTaskFilter: CronTaskFilter;
 }
 
 export function init(options: InitOptions): void {
-    if (state.working) {
+    if (state.working || state.runner) {
         throw new Error('Cron tasks are already running');
     }
 
@@ -28,6 +42,12 @@ export function init(options: InitOptions): void {
     state.cronExpressionParserOptions = options.cronExpressionParserOptions;
     state.cronTaskCaller = options.cronTaskCaller;
     state.cronTaskFilter = options.cronTaskFilter;
+
+    const concurrency = Math.max(1, options.cronTaskConcurrency | 0);
+    state.concurrency = concurrency;
+    if (concurrency > 1) {
+        state.runner = new ConcurrentRunner({ concurrency }, (error) => onError(error));
+    }
 
     if (state.runCronTasks) {
         onInfo({ message: 'Cron tasks processing started', code: CODE_CRON_TASK_STARTED });
@@ -114,9 +134,14 @@ const noTaskWaitTime = 5 * 1000;
 const state = {
     tasks: new Map<string, Task>(),
 
+    // Legacy serial scheduler state (used when concurrency === 1).
     nextTaskTimeoutId: <ReturnType<typeof setTimeout> | null>null,
-
     working: false,
+
+    // ConcurrentRunner state (used when concurrency > 1).
+    runner: <ConcurrentRunner | null>null,
+    runnerStarted: false,
+    concurrency: 1,
 
     _collection: <Collection<TaskDocument> | null>null,
 
@@ -137,6 +162,8 @@ const state = {
     cronTaskCaller: <CronTaskCaller | null>null,
     cronTaskFilter: <CronTaskFilter | null>null,
 };
+
+const CRON_SOURCE_NAME = '_cron_tasks';
 
 export interface CronTaskCaller {
     <T>(task: () => Promise<T>): Promise<T> | T;
@@ -355,7 +382,7 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
     }
 }
 
-/** can never throw */
+/** Can never throw. */
 async function getWaitTimeByNextTask(): Promise<number> {
     try {
         const nextTask = await state.collection.findOne(getTasksToProcessFilter(), {
@@ -375,12 +402,18 @@ async function getWaitTimeByNextTask(): Promise<number> {
     }
 }
 
+// --- Serial scheduler (concurrency === 1) --------------------------------
+// This is the historical single-loop implementation. It is used verbatim
+// when `cronTaskConcurrency` is 1 (the default) so existing behaviour -
+// including exact wake-up timing that several tests assert on - is
+// preserved byte-for-byte.
+
 function runATask(): void {
     debug('runATask called');
     state.working = true;
     (async () => {
         await initPromise;
-        const enforcedTask = state.enforcedTasks.shift() || null; // there can be no enforced task
+        const enforcedTask = state.enforcedTasks.shift() || null;
         let task: Task | null = null;
         const countOfTasks = state.tasks.size;
 
@@ -389,12 +422,12 @@ function runATask(): void {
 
             if (!task) {
                 debug('no pending task found');
-                return; // the finally statement will be called anyway
+                return;
             }
 
             await processTask(task, enforcedTask);
         } catch (error) {
-            debug(`Catch error ${error} `);
+            debug(`Catch error ${error}`);
             if (enforcedTask) {
                 enforcedTask.reject(error as Error);
             } else {
@@ -403,20 +436,15 @@ function runATask(): void {
         } finally {
             const shouldTriggerNext = () => state.runCronTasks || !!state.enforcedTasks.length;
             if (shouldTriggerNext()) {
-                // if there was no task, wait for standard time,
-                // but try find another one when one has finished
-                // or a new task has been registered
                 const aTaskHasBeenRegistered = () => state.tasks.size !== countOfTasks;
                 let waitTime = 0;
                 if (!task && !aTaskHasBeenRegistered() && !state.enforcedTasks.length) {
                     waitTime = await getWaitTimeByNextTask();
-                    // a task can be registered in the meanwhile
                     if (aTaskHasBeenRegistered() || state.enforcedTasks.length) {
                         waitTime = 0;
                     }
                 }
 
-                // should we still trigger next?
                 if (shouldTriggerNext()) {
                     debug(`SCHEDULING NEXT CHECK AFTER ${waitTime} ms`);
                     state.nextTaskTimeoutId = setTimeout(() => {
@@ -431,26 +459,89 @@ function runATask(): void {
     })();
 }
 
+// --- Parallel scheduler (concurrency > 1) --------------------------------
+// Wraps ConcurrentRunner around the same findATaskToRun / processTask
+// primitives. Multiple workers poll the cron collection in parallel; each
+// task is still serialised against itself via the per-taskId lockedTill
+// mechanism, so raising concurrency never causes a single task to run
+// twice simultaneously.
+
+async function tryRunOneTaskViaRunner(): Promise<void> {
+    await initPromise;
+    const enforcedTask = state.enforcedTasks.shift() || null;
+    let task: Task | null = null;
+
+    try {
+        task = await findATaskToRun(enforcedTask);
+        if (!task) {
+            debug('no pending task found');
+            return;
+        }
+
+        await processTask(task, enforcedTask);
+        // A task just completed - there may be another ready right now, so
+        // poll again immediately instead of applying back-off.
+        state.runner?.speedUp(CRON_SOURCE_NAME);
+    } catch (error) {
+        debug(`Catch error ${error}`);
+        if (enforcedTask) {
+            enforcedTask.reject(error as Error);
+        } else {
+            onError(error as Error);
+        }
+    } finally {
+        if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
+            const waitMs = await getWaitTimeByNextTask();
+            state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
+        }
+    }
+}
+
 function ensureStarted(): void {
-    // terminate waiting if there is any
+    if (state.runner) {
+        // Parallel path.
+        if (!state.runner.hasSource(CRON_SOURCE_NAME)) {
+            state.runner.registerSource(CRON_SOURCE_NAME, {
+                minPollMs: 200,
+                maxPollMs: noTaskWaitTime,
+                jitterMs: 100,
+            });
+        }
+        if (!state.runnerStarted) {
+            debug('STARTING RUNNER');
+            state.runnerStarted = true;
+            state.runner.start(() => tryRunOneTaskViaRunner());
+        } else {
+            state.runner.speedUp(CRON_SOURCE_NAME);
+        }
+        return;
+    }
+
+    // Serial path.
     if (state.nextTaskTimeoutId) {
         clearTimeout(state.nextTaskTimeoutId);
         state.nextTaskTimeoutId = null;
     }
-
     if (!state.working) {
         debug('STARTING LOOP');
         runATask();
     }
-    // else the loop is already set
 }
 
-export function stopCronTasks(): void {
+export function stopCronTasks(): Promise<void> {
     debug('STOPPING CRON TASKS');
     state.runCronTasks = false;
     if (state.nextTaskTimeoutId) {
         clearTimeout(state.nextTaskTimeoutId);
+        state.nextTaskTimeoutId = null;
     }
+    if (state.runner && state.runnerStarted) {
+        state.runnerStarted = false;
+        // Fire and forget: historical callers treat stopCronTasks as void.
+        // Returning the promise lets new callers await full teardown.
+        return state.runner.stop();
+    }
+    return Promise.resolve();
 }
 
 export function startCronTasks(): void {
