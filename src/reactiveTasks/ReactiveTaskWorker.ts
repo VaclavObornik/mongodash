@@ -114,6 +114,13 @@ export class ReactiveTaskWorker {
                 return;
             }
 
+            // Record the metric eagerly so scrapes that happen between the
+            // handler returning and this DB write observing the success are
+            // not misled. The finalize CAS below is a second line of defence
+            // against a stolen lock; if it fires we surface lock-lost but
+            // keep the duration sample (the handler did run successfully).
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
+
             const entry = this.registry.getEntry(tasksCollection.collectionName);
             const finalized = await entry.repository.finalizeTask(
                 taskRecord,
@@ -125,25 +132,19 @@ export class ReactiveTaskWorker {
                 session ? { session } : undefined,
             );
 
-            if (!finalized) {
+            if (!finalized && !lockLost) {
                 // Silent lock loss: startedAt changed out from under us
-                // between the continuous-lock CAS renewals. Treat it the
-                // same as an explicit onLockLost callback would: flip the
-                // flag so later paths skip their own writes / metrics, and
-                // surface the event via onInfo for operator visibility.
-                if (!lockLost) {
-                    lockLost = true;
-                    this.metricsCollector?.recordLockLost(taskRecord.task);
-                    onInfo({
-                        message: `Reactive task '${taskRecord.task}' finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
-                        taskId: taskRecord._id.toString(),
-                        code: CODE_REACTIVE_TASK_LOCK_LOST,
-                    });
-                }
-                return;
+                // between the continuous-lock CAS renewal ticks. Flip the
+                // flag so later paths skip their own writes, bump the
+                // lock-lost counter, and emit onInfo for operator visibility.
+                lockLost = true;
+                this.metricsCollector?.recordLockLost(taskRecord.task);
+                onInfo({
+                    message: `Reactive task '${taskRecord.task}' finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
+                    taskId: taskRecord._id.toString(),
+                    code: CODE_REACTIVE_TASK_LOCK_LOST,
+                });
             }
-
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
         };
 
         const context: ReactiveTaskContext<Document> = {
@@ -317,6 +318,8 @@ export class ReactiveTaskWorker {
                 return;
             }
 
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
+
             const entry = this.registry.getEntry(tasksCollection.collectionName);
 
             const finalized = await entry.repository.finalizeTask(
@@ -330,18 +333,17 @@ export class ReactiveTaskWorker {
 
             if (!finalized) {
                 // Silent lock loss (startedAt no longer matches): another
-                // worker owns the task now. Do not count this execution as
-                // a failure - the replacement will record its own outcome.
+                // worker has re-claimed the task. The failure metric is
+                // kept (the handler did throw) but we surface lock-lost
+                // so operators can see why retry scheduling / dead-letter
+                // transitions did not persist.
                 this.metricsCollector?.recordLockLost(taskRecord.task);
                 onInfo({
                     message: `Reactive task '${taskRecord.task}' error-finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
                     taskId: taskRecord._id.toString(),
                     code: CODE_REACTIVE_TASK_LOCK_LOST,
                 });
-                return;
             }
-
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
         }
     }
 }
