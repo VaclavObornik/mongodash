@@ -155,12 +155,16 @@ describe('cronTasks - parallel execution', () => {
         stopCronTasks();
         const runsAtStop = ran;
 
-        // Wait past the default no-task back-off window (5s, noTaskWaitTime
-        // in cronTasks.ts). If the runner is still alive, a poll would
-        // definitely fire inside this window.
-        await wait(6000);
+        // stopCronTasks is fire-and-forget: a worker that was already
+        // inside findOneAndUpdate at the time can still tick. Give it a
+        // short grace period, then capture the poll count and assert it
+        // does not grow further over a full back-off window.
+        await wait(200);
+        const pollsAfterGrace = pollSpy.callCount;
+
+        await wait(5500); // > noTaskWaitTime (5s)
 
         expect(ran).toBe(runsAtStop); // no further executions
-        expect(pollSpy.called).toBe(false); // no further polls
+        expect(pollSpy.callCount).toBe(pollsAfterGrace); // no further polls
     }, 20000);
 });
