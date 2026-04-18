@@ -73,6 +73,14 @@ describe('cronTasks - behavior', () => {
         const taskId = nextTaskId();
         const callTimes: { startedAt: Date; finishedAt: Date }[] = [];
         let nextRunResolve: ((value: null) => void) | null = null;
+        let nextRunTimer: NodeJS.Timeout | null = null;
+
+        const clearNextRunTimer = () => {
+            if (nextRunTimer) {
+                clearTimeout(nextRunTimer);
+                nextRunTimer = null;
+            }
+        };
 
         const handler = sinon.spy(async () => {
             const startedAt = new Date();
@@ -82,6 +90,7 @@ describe('cronTasks - behavior', () => {
                 callTimes.push({ startedAt, finishedAt: new Date() });
                 const resolve = nextRunResolve;
                 nextRunResolve = null;
+                clearNextRunTimer();
                 if (resolve) resolve(null);
             }
         });
@@ -89,7 +98,8 @@ describe('cronTasks - behavior', () => {
         const waitForNextRun = (timeoutMs = 3000): Promise<null> =>
             new Promise((resolve, reject) => {
                 nextRunResolve = resolve;
-                setTimeout(() => {
+                nextRunTimer = setTimeout(() => {
+                    nextRunTimer = null;
                     if (nextRunResolve) {
                         nextRunResolve = null;
                         reject(new Error(`waitForNextRun timed out after ${timeoutMs}ms for ${taskId}`));

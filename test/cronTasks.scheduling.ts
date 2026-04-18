@@ -133,11 +133,16 @@ describe('cronTasks - scheduling semantics', () => {
 
         it('rejects init() with cronExpressionParserOptions.endDate (not supported)', async () => {
             const instance = getNewInstance();
-
-            await assert.rejects(
-                () => instance.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }),
-                /The 'endDate' parameter of the cron-parser package is not supported yet\./,
-            );
+            try {
+                await assert.rejects(
+                    () => instance.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }),
+                    /The 'endDate' parameter of the cron-parser package is not supported yet\./,
+                );
+            } finally {
+                // initInstance() opens the Mongo client before the cron init throws,
+                // so we must clean up even on rejection to avoid a leaked connection.
+                await instance.cleanUpInstance();
+            }
         });
     });
 
