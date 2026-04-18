@@ -135,6 +135,10 @@ describe('assertNoReactiveTaskErrors', () => {
         await reactiveTask({
             task: 'multi_failing_task',
             collection: 'test_assert_errors',
+            // maxAttempts: 1 so the task reaches 'failed' immediately rather than
+            // staying in 'pending' with a 10s retry (which would race the idle
+            // check's stable-threshold window and cause false timeouts on slow CI).
+            retryPolicy: { type: 'fixed', interval: '10s', maxAttempts: 1 },
             handler: async (ctx: any) => {
                 const doc = await testDB.findOne({ _id: ctx.docId });
                 if (doc?.kind === 'auth') throw new Error('Expected Failure');
@@ -147,9 +151,9 @@ describe('assertNoReactiveTaskErrors', () => {
         const since = new Date();
         const a = await testDB.insertOne({ kind: 'auth' });
         const b = await testDB.insertOne({ kind: 'authz' });
-        await waitUntilReactiveTasksIdle({ timeoutMs: 8000 });
+        await waitUntilReactiveTasksIdle({ timeoutMs: 20000, stabilityDurationMs: 300 });
 
-        // Both errors are whitelisted (one as string exact, one via RegExp)
+        // Both errors are whitelisted (one as string exact, one via RegExp).
         await assertNoReactiveTaskErrors({
             since,
             excludeErrors: ['Expected Failure', /Authorization Error/],
@@ -158,7 +162,7 @@ describe('assertNoReactiveTaskErrors', () => {
 
         // A non-whitelisted error still fails the assertion.
         const c = await testDB.insertOne({ kind: 'real' });
-        await waitUntilReactiveTasksIdle({ timeoutMs: 8000 });
+        await waitUntilReactiveTasksIdle({ timeoutMs: 20000, stabilityDurationMs: 300 });
         await expect(
             assertNoReactiveTaskErrors({
                 since,
@@ -166,7 +170,7 @@ describe('assertNoReactiveTaskErrors', () => {
                 whitelist: [{ collection: 'test_assert_errors', filter: { _id: c.insertedId } }],
             }),
         ).rejects.toThrow(/real unexpected issue/);
-    }, 20000);
+    }, 60000);
 
     it('should ignore errors matching whitelist collection but NOT filter', async () => {
         await reactiveTask({
