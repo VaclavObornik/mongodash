@@ -203,12 +203,10 @@ export class ConcurrentRunner {
         return new Promise<void>((resolve) => {
             if (ms <= 0) return resolve();
 
-            let resolved = false;
             let timer: NodeJS.Timeout;
             const wakeUp = () => {
-                if (resolved) return;
-                resolved = true;
                 clearTimeout(timer);
+                // Remove this wakeUp from the list if it's there (it might be called by speedUp)
                 const index = this.wakeUpSignals.indexOf(wakeUp);
                 if (index !== -1) {
                     this.wakeUpSignals.splice(index, 1);
@@ -218,19 +216,6 @@ export class ConcurrentRunner {
 
             this.wakeUpSignals.push(wakeUp);
             timer = setTimeout(wakeUp, ms);
-
-            // Lost-wake-up guard: speedUp() / setNextRunAt() called
-            // between the readiness check in runWorker and this
-            // registration cannot pop a signal that doesn't exist yet.
-            // Re-check after registration and wake immediately if any
-            // source has become due.
-            const now = Date.now();
-            for (const state of this.sources.values()) {
-                if (state.nextRunAt <= now) {
-                    wakeUp();
-                    return;
-                }
-            }
         });
     }
 

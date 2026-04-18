@@ -193,4 +193,98 @@ describe('ConcurrentRunner', () => {
         await runner.stop();
         await runner.stop(); // Should be safe
     });
+
+    // ------------------------------------------------------------------
+    // Scheduler-race regressions. Each `it` pins a specific behaviour
+    // introduced by the "close three scheduler races" refactor.
+    // ------------------------------------------------------------------
+
+    it('start() resets source schedule so a restart polls immediately despite prolonged nextRunAt', async () => {
+        // High minPoll so the worker's natural back-off is much longer
+        // than this test's window. Without the source reset in start()
+        // the restarted worker would inherit a `nextRunAt = ~now + 1s`
+        // set by prolongNextRun in the previous cycle and sleep the rest
+        // of that 1s before noticing any new work.
+        runner = new ConcurrentRunner({ concurrency: 1 });
+        runner.registerSource('col1', { minPollMs: 1000, maxPollMs: 1000, jitterMs: 0 });
+
+        let callCount = 0;
+        const callback = async () => {
+            callCount++;
+        };
+
+        // Cycle 1: one poll + worker enters sleep with prolonged nextRunAt.
+        runner.start(callback);
+        await sleep(30);
+        expect(callCount).toBeGreaterThanOrEqual(1);
+
+        // Stop mid-sleep. Source metadata (nextRunAt ~= now + 1000) persists.
+        await runner.stop();
+
+        const callsAfterRestart = callCount;
+
+        // Cycle 2: restart. If start() resets nextRunAt to `now`, the
+        // fresh worker polls immediately. Without the reset the first
+        // iteration would compute timeToWait from the stale 1000ms value
+        // and sleep ~950ms, missing our 100ms assertion window.
+        runner.start(callback);
+        await sleep(100);
+
+        expect(callCount).toBeGreaterThan(callsAfterRestart);
+    });
+
+    it('setNextRunAt() after a concurrent speedUp does not push the signal back into the future', async () => {
+        // Reproduces the race surfaced by cron tests: a task callback
+        // (a) triggers speedUp to signal new work while running, and
+        // (b) on return the scheduler commits setNextRunAt with a large
+        // waitMs computed from pre-signal state. Without the no-op guard
+        // (state.nextRunAt <= now  =>  skip write) setNextRunAt wins
+        // and the signalled immediate poll is lost.
+        runner = new ConcurrentRunner({ concurrency: 1 });
+        runner.registerSource('col1', { minPollMs: 5000, maxPollMs: 5000, jitterMs: 0 });
+
+        let callCount = 0;
+        let signalled = false;
+        runner.start(async () => {
+            callCount++;
+            if (!signalled) {
+                signalled = true;
+                runner.speedUp('col1');
+                runner.setNextRunAt('col1', Date.now() + 60 * 60 * 1000);
+            }
+        });
+
+        // minPollMs is 5000ms. Without the fix the worker would sleep
+        // the full 5000ms after the first invocation and this 200ms
+        // window would see only a single call. With the fix speedUp
+        // survives and the worker invokes callback at least twice.
+        await sleep(200);
+        expect(callCount).toBeGreaterThanOrEqual(2);
+    });
+
+    it('setNextRunAt() with a future runAt still applies when nextRunAt is already future', async () => {
+        // Negative case for the no-op guard: the standard "push next
+        // poll forward" usage must continue to work when no speedUp
+        // has pulled nextRunAt into the past.
+        runner = new ConcurrentRunner({ concurrency: 1 });
+        runner.registerSource('col1', { minPollMs: 50, maxPollMs: 50, jitterMs: 0 });
+
+        let callCount = 0;
+        runner.start(async () => {
+            callCount++;
+        });
+
+        // Let one poll run; prolongNextRun sets nextRunAt ~= now + 50ms
+        // (safely in the future from Date.now()'s perspective).
+        await sleep(20);
+        const callsAfterFirst = callCount;
+        expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
+
+        // Push next poll far beyond that back-off; write must apply.
+        runner.setNextRunAt('col1', Date.now() + 1000);
+
+        // Well past the 50ms back-off, well before the 1000ms target.
+        await sleep(200);
+        expect(callCount).toBe(callsAfterFirst);
+    });
 });
