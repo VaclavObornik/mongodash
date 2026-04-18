@@ -28,8 +28,12 @@ Two task subsystems, both share `ConcurrentRunner` as the worker pool:
 - **Cron tasks** (`src/cronTasks.ts`) — scheduled jobs keyed by `taskId`.
   - Default path: single-loop `runATask` (concurrency=1, BC).
   - Opt-in parallel path: `cronTaskConcurrency > 1` uses `ConcurrentRunner`.
-  - **Never refactor to always-use ConcurrentRunner** — serial path is
-    byte-for-byte timing-verified by existing tests (fake timers).
+  - Unifying serial/parallel is **now possible** but still nontrivial: the
+    serial path is the BC baseline and specific race regressions
+    (pendingWake, runnerStopPromise, finish-mid-prolong, revert-on-cancel)
+    are pinned in `test/cronTasks.races.regression.ts`. Any refactor must
+    keep those green; behaviour tests in `test/cronTasks.behavior.ts` are
+    run-time tolerant and won't block a structural change.
   - `pendingWake` flag handles the race where a task is registered mid-loop.
   - `runnerStopPromise` prevents rapid stop+start from leaving the runner
     wedged (runnerStarted=true but no live workers).
@@ -136,27 +140,45 @@ otherwise.
 
 - `test/**/*.ts` is picked up by regex; `testHelpers.ts` /
   `testHelpersReactive.ts` are explicitly excluded. Some test files
-  legacy-named without `.test.ts` (`cronTasks.ts`, `LeaderElector.ts`, etc.)
-  — **don't rename for "consistency"**, just churn.
+  legacy-named without `.test.ts` (`LeaderElector.ts`, etc.) —
+  **don't rename for "consistency"**, just churn.
 - `getNewInstance()` resets modules and returns a fresh `mongodash` import
   with hooks (`setOnError`, `cleanUpInstance`, `initInstance`). Always
   `await instance.cleanUpInstance()` in `afterEach` or `afterAll`.
-- `getTestingTask(handler?)` + `waitForNextRun()` is the cron test idiom.
+- `getTestingTask(handler?)` + `waitForNextRun()` is the legacy cron test
+  idiom, still used by `cronTasks.races.regression.ts`.
   `createReusableWaitableStub` is the reactive-task equivalent.
 - For reactive tests that need a faster debounce, pass
   `reactiveTaskConcurrency: N, minBatchIntervalMs: 10, minPollMs: 10`
   via `initInstance` (note: internal options go through `as any`).
-- Replace fixed `wait(Xms)` with `waitUntil(fn, {timeoutMs})` polling —
-  the cronTasks "idempotent markCompleted" fix is a template.
+- Replace fixed `wait(Xms)` with `waitUntil(fn, {timeoutMs})` polling.
+
+### Cron test files (post 2.7.0 test refactor)
+
+- `test/cronTasks.scheduling.ts` — interval / CRON / duration registration
+  semantics. Pure behaviour, no fake timers.
+- `test/cronTasks.behavior.ts` — public contract (registration,
+  runImmediately precedence, processing, stop/start lifecycle,
+  runCronTask, scheduleCronTaskImmediately, onInfo + correlationId).
+  Real time, polled via `waitUntil`; no driver stubs.
+- `test/cronTasks.parallel.ts` — `cronTaskConcurrency > 1` path.
+  Includes a serial-baseline sanity-check and the pendingWake /
+  runnerStopPromise regressions observed via public API.
+- `test/cronTasks.races.regression.ts` — implementation-aware invariants
+  (idle-DB, index/query-plan/projection, lock prolong + mid-prolong
+  race, revert-on-cancel, DB fault tolerance). **These intentionally
+  use `sandbox.useFakeTimers` + `sinon.stub(collection, …)`** — each
+  `it` has a JSDoc banner describing the invariant it pins.
+
+Before refactoring the cron scheduler, run all four files and verify
+green. Behaviour files are resilient to internal timing changes;
+regression file failures are a signal the change hit a known invariant
+and needs analysis.
 
 ### Known flakes (as of 2.7.0)
 
 - `test/reactiveTasks/lockRenewal.test.ts` — times out on CI in some
   Node×driver×server combos. Pre-existing on master. Not critical path.
-- `test/cronTasks.ts` "should run another newly registered task
-  immediately when no task is running" — `it.each(times(10, ...))`
-  parameterized; <5% flake rate remains even after the `pendingWake`
-  fix (round 6 of the refactor). Usually resolves on rerun.
 - `test/withLock.ts` timing assertions on 500ms — slow CI tips over.
 - **Docker Hub rate limits** occasionally fail `supercharge/mongodb-
   github-action` with "toomanyrequests". Not a code bug, just rerun.
