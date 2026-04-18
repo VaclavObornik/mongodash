@@ -528,7 +528,7 @@ function ensureStarted(): void {
     }
 }
 
-export function stopCronTasks(): Promise<void> {
+export function stopCronTasks(): void {
     debug('STOPPING CRON TASKS');
     state.runCronTasks = false;
     if (state.nextTaskTimeoutId) {
@@ -537,11 +537,11 @@ export function stopCronTasks(): Promise<void> {
     }
     if (state.runner && state.runnerStarted) {
         state.runnerStarted = false;
-        // Fire and forget: historical callers treat stopCronTasks as void.
-        // Returning the promise lets new callers await full teardown.
-        return state.runner.stop();
+        // Fire and forget: the historical API is synchronous (returns void).
+        // Any in-flight tasks will finish on their own; further polls will
+        // not happen because runnerStarted is already cleared.
+        state.runner.stop().catch((err) => onError(err as Error));
     }
-    return Promise.resolve();
 }
 
 export function startCronTasks(): void {

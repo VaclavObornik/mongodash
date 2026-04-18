@@ -60,9 +60,10 @@ export async function resolveWhitelistFilter(
         }
 
         // A filter-scoped rule that matched zero source documents can never
-        // contribute tasks of its own. Drop it so we do not issue a
-        // `$in: []` query for nothing.
-        if (ruleIds !== null && ruleIds.length === 0 && !rule.task) {
+        // contribute tasks of its own - drop it even when a task is also
+        // specified (the AND of "task=X" and "sourceDocId IN []" is still
+        // empty, so emitting that filter just produces useless `$in: []` queries).
+        if (ruleIds !== null && ruleIds.length === 0) {
             continue;
         }
 

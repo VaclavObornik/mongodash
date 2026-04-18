@@ -28,11 +28,12 @@ describe('ReactiveTaskWorker - lock lost handling', () => {
         await instance.initInstance({
             globalsCollection: '_mongodash_locklost_globals',
             visibilityTimeoutMs: 1000,
-            onInfo: (info: { code?: string }) => {
-                onInfoCalls.push(info);
+            onInfo: (info) => {
+                const rawCode = info !== null && typeof info === 'object' ? Reflect.get(info as object, 'code') : undefined;
+                onInfoCalls.push({ code: typeof rawCode === 'string' ? rawCode : undefined });
             },
             monitoring: { enabled: false },
-        } as never);
+        });
 
         const source = instance.mongodash.getCollection(COLLECTION);
         const tasks = instance.mongodash.getCollection(`${COLLECTION}_tasks`);

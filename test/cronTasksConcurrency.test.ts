@@ -96,6 +96,6 @@ describe('cronTasks - parallel execution', () => {
     it('starts the runner lazily only when needed', async () => {
         // No tasks registered: init should not crash and stopping should be a noop.
         await instance.initInstance({ cronTaskConcurrency: 2 });
-        await instance.mongodash.stopCronTasks();
+        instance.mongodash.stopCronTasks();
     });
 });
