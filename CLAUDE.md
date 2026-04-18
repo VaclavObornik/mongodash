@@ -26,17 +26,19 @@ during iteration.
 Two task subsystems, both share `ConcurrentRunner` as the worker pool:
 
 - **Cron tasks** (`src/cronTasks.ts`) — scheduled jobs keyed by `taskId`.
-  - Default path: single-loop `runATask` (concurrency=1, BC).
-  - Opt-in parallel path: `cronTaskConcurrency > 1` uses `ConcurrentRunner`.
-  - Unifying serial/parallel is **now possible** but still nontrivial: the
-    serial path is the BC baseline and specific race regressions
-    (pendingWake, runnerStopPromise, finish-mid-prolong, revert-on-cancel)
-    are pinned in `test/cronTasks.races.regression.ts`. Any refactor must
-    keep those green; behaviour tests in `test/cronTasks.behavior.ts` are
-    run-time tolerant and won't block a structural change.
-  - `pendingWake` flag handles the race where a task is registered mid-loop.
+  - Single scheduler: `ConcurrentRunner` for all concurrencies. The
+    default `cronTaskConcurrency=1` spawns one worker; higher values
+    spawn more. Per-task serialisation is enforced via the DB
+    `lockedTill` lock, so concurrency never causes a single task to
+    double-run.
   - `runnerStopPromise` prevents rapid stop+start from leaving the runner
-    wedged (runnerStarted=true but no live workers).
+    wedged (runnerStarted=true but no live workers). ensureStarted chains
+    on a pending stop before firing a new start.
+  - `ConcurrentRunner.start()` resets each source's nextRunAt +
+    currentBackoff, and `setNextRunAt()` no-ops if nextRunAt is already
+    <= now (preserves a concurrent speedUp). `runATask` therefore
+    does not need caller-side race workarounds; see the
+    "refactor(concurrent-runner): close three scheduler races" commit.
 
 - **Reactive tasks** (`src/reactiveTasks/`) — change-stream driven.
   - `LeaderElector` → `Planner` (change stream + batching + reconciliation)
@@ -50,10 +52,15 @@ Two task subsystems, both share `ConcurrentRunner` as the worker pool:
    `() => void` is expected. The internal parallel-runner stop is
    fire-and-forget via `runnerStopPromise`.
 
-2. **Serial cron's `runATask` mutates `state.working` + `state.pendingWake`.**
-   When registering mid-iteration, `ensureStarted` sets `pendingWake=true`
-   instead of calling `runATask` directly (which would create a second
-   concurrent loop). The finally block checks this flag.
+2. **`ConcurrentRunner.setNextRunAt()` never pushes an already-due
+   source back into the future.** If `state.nextRunAt` is already
+   `<= now`, the write is skipped. A worker that finishes a poll and
+   calls `setNextRunAt(now + waitMs)` based on a stale query must not
+   overwrite a concurrent `speedUp()` that happened during the query.
+   Combined with the `resolved`-guarded re-check at the top of
+   `sleep()` and the source reset in `start()`, the runner absorbs the
+   three races that previously forced caller workarounds (cron used
+   two, see the "close three scheduler races" commit).
 
 3. **`createContinuousLock` CAS mode** uses `expectedInitialValue` +
    `onLockLost`. Worker passes `taskRecord.nextRunAt`; CAS detects
