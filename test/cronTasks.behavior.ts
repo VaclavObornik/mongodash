@@ -72,6 +72,12 @@ describe('cronTasks - behavior', () => {
     function makeTask(cb: () => unknown | Promise<unknown> = noop) {
         const taskId = nextTaskId();
         const callTimes: { startedAt: Date; finishedAt: Date }[] = [];
+        // Runs that completed without an active waiter. `waitForNextRun()`
+        // consumes one of these immediately if present, so callers can
+        // register+await in either order without racing. Without this buffer
+        // an immediate-schedule task could finish before the waiter is
+        // installed, causing a spurious timeout.
+        let unconsumedRuns = 0;
         let nextRunResolve: ((value: null) => void) | null = null;
         let nextRunTimer: NodeJS.Timeout | null = null;
 
@@ -92,11 +98,16 @@ describe('cronTasks - behavior', () => {
                 nextRunResolve = null;
                 clearNextRunTimer();
                 if (resolve) resolve(null);
+                else unconsumedRuns += 1;
             }
         });
 
-        const waitForNextRun = (timeoutMs = 3000): Promise<null> =>
-            new Promise((resolve, reject) => {
+        const waitForNextRun = (timeoutMs = 3000): Promise<null> => {
+            if (unconsumedRuns > 0) {
+                unconsumedRuns -= 1;
+                return Promise.resolve(null);
+            }
+            return new Promise((resolve, reject) => {
                 nextRunResolve = resolve;
                 nextRunTimer = setTimeout(() => {
                     nextRunTimer = null;
@@ -106,6 +117,7 @@ describe('cronTasks - behavior', () => {
                     }
                 }, timeoutMs);
             });
+        };
 
         return { taskId, handler, waitForNextRun, callTimes };
     }
