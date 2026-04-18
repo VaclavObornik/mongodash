@@ -4,6 +4,12 @@ import { Collection } from 'mongodb';
 import * as sinon from 'sinon';
 import { getNewInstance, wait, waitUntil } from './testHelpers';
 
+// Several tests here poll via waitUntil with budgets up to 15s (to cope with
+// slow CI while still catching real hangs). Jest's default per-test timeout
+// is 5s, which would mask the waitUntil timeout and fail with a less useful
+// generic message. Raise the timeout once at the suite level.
+jest.setTimeout(30_000);
+
 /**
  * Parallel-runner behavior tests for the opt-in `cronTaskConcurrency > 1`
  * execution mode. These scenarios are not exercised by cronTasks.behavior.ts
