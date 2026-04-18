@@ -139,6 +139,11 @@ const state = {
     // Legacy serial scheduler state (used when concurrency === 1).
     nextTaskTimeoutId: <ReturnType<typeof setTimeout> | null>null,
     working: false,
+    // Set by ensureStarted when it is called while the loop is already busy
+    // (working === true). The loop's finally block checks this and schedules
+    // a 0-delay next iteration so a task registered mid-iteration is never
+    // missed.
+    pendingWake: false,
 
     // ConcurrentRunner state (used when concurrency > 1).
     runner: <ConcurrentRunner | null>null,
@@ -413,6 +418,7 @@ async function getWaitTimeByNextTask(): Promise<number> {
 function runATask(): void {
     debug('runATask called');
     state.working = true;
+    state.pendingWake = false;
     (async () => {
         await initPromise;
         const enforcedTask = state.enforcedTasks.shift() || null;
@@ -440,9 +446,12 @@ function runATask(): void {
             if (shouldTriggerNext()) {
                 const aTaskHasBeenRegistered = () => state.tasks.size !== countOfTasks;
                 let waitTime = 0;
-                if (!task && !aTaskHasBeenRegistered() && !state.enforcedTasks.length) {
+                // If ensureStarted was called while we were busy (e.g. cronTask()
+                // registered a new task mid-iteration and cleared our existing
+                // timer), re-run immediately regardless of what the DB says.
+                if (!state.pendingWake && !task && !aTaskHasBeenRegistered() && !state.enforcedTasks.length) {
                     waitTime = await getWaitTimeByNextTask();
-                    if (aTaskHasBeenRegistered() || state.enforcedTasks.length) {
+                    if (state.pendingWake || aTaskHasBeenRegistered() || state.enforcedTasks.length) {
                         waitTime = 0;
                     }
                 }
@@ -533,10 +542,14 @@ function ensureStarted(): void {
         clearTimeout(state.nextTaskTimeoutId);
         state.nextTaskTimeoutId = null;
     }
-    if (!state.working) {
-        debug('STARTING LOOP');
-        runATask();
+    if (state.working) {
+        // The loop is mid-iteration. It will notice pendingWake in its
+        // finally block and schedule the next iteration at 0ms.
+        state.pendingWake = true;
+        return;
     }
+    debug('STARTING LOOP');
+    runATask();
 }
 
 export function stopCronTasks(): void {
