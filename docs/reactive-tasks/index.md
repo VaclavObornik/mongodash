@@ -28,7 +28,7 @@ It is important to distinguish between Reactive Tasks and standard schedulers (l
 
 Reactive Tasks support time-based operations via `debounce` (e.g., "Wait 1m after data change to settle") and `deferCurrent` (e.g., "Retry in 5m"), but they are fundamentally event-driven. If you need purely time-based jobs (e.g., "Daily Report" without any data change trigger), you can trigger them via a [Cron job](../cron-tasks.md), although you can model them as "Run on insert to 'daily_reports' collection".
 
-## Advantages over Standard Messaging
+## Advantages over Standard Queue systems
 
 Using Reactive Tasks instead of a traditional message broker (RabbitMQ, Kafka) provides distinct architectural benefits:
 
