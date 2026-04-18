@@ -55,6 +55,12 @@ export default defineConfig({
                     { text: 'Process In Batches', link: '/process-in-batches' },
                     { text: 'Getters', link: '/getters' }
                 ]
+            },
+            {
+                text: 'Testing',
+                items: [
+                    { text: 'Testing Utilities', link: '/testing' }
+                ]
             }
         ],
 
