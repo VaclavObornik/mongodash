@@ -60,6 +60,17 @@ describe('cronTasks - parallel runner (cronTaskConcurrency > 1)', () => {
         }
     }
 
+    it('starts lazily: init + stop with zero tasks must not crash', async () => {
+        const instance = getNewInstance();
+        try {
+            await instance.initInstance({ cronTaskConcurrency: 2 });
+            // no cronTask registrations
+            instance.mongodash.stopCronTasks();
+        } finally {
+            await instance.cleanUpInstance();
+        }
+    });
+
     it('allows multiple distinct tasks to be in-flight simultaneously', async () => {
         await withInstance(4, async ({ mongodash }) => {
             let inFlight = 0;
