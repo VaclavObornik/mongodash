@@ -31,7 +31,7 @@ export interface InitOptions {
 }
 
 export function init(options: InitOptions): void {
-    if (state.working || state.runner) {
+    if (state.runner) {
         throw new Error('Cron tasks are already running');
     }
 
@@ -46,10 +46,7 @@ export function init(options: InitOptions): void {
     // Floor to a safe integer rather than bitwise truncation (which wraps at 32 bits).
     const requested = Number(options.cronTaskConcurrency);
     const concurrency = Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 1);
-    state.concurrency = concurrency;
-    if (concurrency > 1) {
-        state.runner = new ConcurrentRunner({ concurrency }, (error) => onError(error));
-    }
+    state.runner = new ConcurrentRunner({ concurrency }, (error) => onError(error));
 
     if (state.runCronTasks) {
         onInfo({ message: 'Cron tasks processing started', code: CODE_CRON_TASK_STARTED });
@@ -136,25 +133,17 @@ const noTaskWaitTime = 5 * 1000;
 const state = {
     tasks: new Map<string, Task>(),
 
-    // Legacy serial scheduler state (used when concurrency === 1).
-    nextTaskTimeoutId: <ReturnType<typeof setTimeout> | null>null,
-    working: false,
-    // Set by ensureStarted when it is called while the loop is already busy
-    // (working === true). The loop's finally block checks this and schedules
-    // a 0-delay next iteration so a task registered mid-iteration is never
-    // missed.
-    pendingWake: false,
-
-    // ConcurrentRunner state (used when concurrency > 1).
+    // Runner state. `runner` is created in init() and reused across
+    // start/stop cycles. `runnerStarted` tracks whether workers are
+    // currently looping. `runnerStopPromise` is non-null while a previous
+    // stop is still draining; ensureStarted chains on it so a rapid
+    // stop + start sequence waits for the previous teardown before firing
+    // a new start - otherwise ConcurrentRunner.start() is a no-op
+    // (isRunning still true) and the scheduler would stall with
+    // runnerStarted=true but no live workers.
     runner: <ConcurrentRunner | null>null,
     runnerStarted: false,
-    // Non-null while the runner is in the middle of stopping. ensureStarted
-    // chains on this promise so a rapid stop + start sequence waits for the
-    // previous teardown before firing a new start - otherwise
-    // ConcurrentRunner.start() is a no-op (isRunning still true) and the
-    // scheduler would stall with runnerStarted=true but no live workers.
     runnerStopPromise: <Promise<void> | null>null,
-    concurrency: 1,
 
     _collection: <Collection<TaskDocument> | null>null,
 
@@ -415,78 +404,20 @@ async function getWaitTimeByNextTask(): Promise<number> {
     }
 }
 
-// --- Serial scheduler (concurrency === 1) --------------------------------
-// This is the historical single-loop implementation. It is used verbatim
-// when `cronTaskConcurrency` is 1 (the default) so existing behaviour -
-// including exact wake-up timing that several tests assert on - is
-// preserved byte-for-byte.
+// --- Scheduler ---------------------------------------------------------
+// One ConcurrentRunner-driven loop for all concurrencies. Each worker
+// polls the cron collection; `findATaskToRun` uses an atomic
+// findOneAndUpdate on `lockedTill` so a task is serialised against itself
+// regardless of how many workers are running. speedUp after a successful
+// run skips the runner's back-off so a burst of pending tasks drains
+// quickly; setNextRunAt on an empty poll defers the next tick to the
+// known runSince of the soonest task.
 
-function runATask(): void {
-    debug('runATask called');
-    state.working = true;
-    state.pendingWake = false;
-    (async () => {
-        await initPromise;
-        const enforcedTask = state.enforcedTasks.shift() || null;
-        let task: Task | null = null;
-        const countOfTasks = state.tasks.size;
-
-        try {
-            task = await findATaskToRun(enforcedTask);
-
-            if (!task) {
-                debug('no pending task found');
-                return;
-            }
-
-            await processTask(task, enforcedTask);
-        } catch (error) {
-            debug(`Catch error ${error}`);
-            if (enforcedTask) {
-                enforcedTask.reject(error as Error);
-            } else {
-                onError(error as Error);
-            }
-        } finally {
-            const shouldTriggerNext = () => state.runCronTasks || !!state.enforcedTasks.length;
-            if (shouldTriggerNext()) {
-                const aTaskHasBeenRegistered = () => state.tasks.size !== countOfTasks;
-                let waitTime = 0;
-                // If ensureStarted was called while we were busy (e.g. cronTask()
-                // registered a new task mid-iteration and cleared our existing
-                // timer), re-run immediately regardless of what the DB says.
-                if (!state.pendingWake && !task && !aTaskHasBeenRegistered() && !state.enforcedTasks.length) {
-                    waitTime = await getWaitTimeByNextTask();
-                    if (state.pendingWake || aTaskHasBeenRegistered() || state.enforcedTasks.length) {
-                        waitTime = 0;
-                    }
-                }
-
-                if (shouldTriggerNext()) {
-                    debug(`SCHEDULING NEXT CHECK AFTER ${waitTime} ms`);
-                    state.nextTaskTimeoutId = setTimeout(() => {
-                        debug("it's time!");
-                        state.nextTaskTimeoutId = null;
-                        runATask();
-                    }, waitTime);
-                }
-            }
-            state.working = false;
-        }
-    })();
-}
-
-// --- Parallel scheduler (concurrency > 1) --------------------------------
-// Wraps ConcurrentRunner around the same findATaskToRun / processTask
-// primitives. Multiple workers poll the cron collection in parallel; each
-// task is still serialised against itself via the per-taskId lockedTill
-// mechanism, so raising concurrency never causes a single task to run
-// twice simultaneously.
-
-async function tryRunOneTaskViaRunner(): Promise<void> {
+async function runATask(): Promise<void> {
     await initPromise;
     const enforcedTask = state.enforcedTasks.shift() || null;
     let task: Task | null = null;
+    const tasksAtStart = state.tasks.size;
 
     try {
         task = await findATaskToRun(enforcedTask);
@@ -510,12 +441,17 @@ async function tryRunOneTaskViaRunner(): Promise<void> {
         if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
             if (state.runCronTasks) {
                 const waitMs = await getWaitTimeByNextTask();
-                state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
+                // If cronTask() added a new task while getWaitTimeByNextTask
+                // was awaiting the DB, that query used a stale task filter
+                // and its waitMs may be way too long. Force an immediate
+                // re-poll so the newly registered task is picked up.
+                const readyNow = state.tasks.size > tasksAtStart || state.enforcedTasks.length > 0;
+                state.runner.setNextRunAt(CRON_SOURCE_NAME, readyNow ? Date.now() : Date.now() + waitMs);
             } else {
-                // Mirror the serial scheduler: once runCronTasks has been
-                // turned off and there is no enforced task to run we stop
-                // polling entirely. A later runCronTask() / startCronTasks()
-                // will re-enter ensureStarted which restarts the runner.
+                // Once runCronTasks has been turned off and there is no
+                // enforced task to run we stop polling entirely. A later
+                // runCronTask() / startCronTasks() will re-enter
+                // ensureStarted which restarts the runner.
                 state.runnerStarted = false;
                 // Track the stop promise here too so a rapid runCronTask()
                 // call that arrives mid-drain chains on it in ensureStarted
@@ -529,71 +465,56 @@ async function tryRunOneTaskViaRunner(): Promise<void> {
 }
 
 function ensureStarted(): void {
-    if (state.runner) {
-        // Parallel path.
-        // If a previous stopCronTasks() is still draining the runner, wait
-        // for it before (re)starting. Without this the inner start() call
-        // would no-op (isRunning still true) and we would end up with
-        // runnerStarted=true but no actual workers.
-        if (state.runnerStopPromise) {
-            const pending = state.runnerStopPromise;
-            pending
-                .then(() => {
-                    if (state.runnerStopPromise === pending) {
-                        state.runnerStopPromise = null;
-                    }
-                    // Re-evaluate: cron may have been stopped again in the
-                    // meantime or runCronTasks may have flipped off.
-                    if (state.runCronTasks || state.enforcedTasks.length > 0) {
-                        ensureStarted();
-                    }
-                })
-                .catch((err) => onError(err as Error));
-            return;
-        }
-
-        if (!state.runner.hasSource(CRON_SOURCE_NAME)) {
-            state.runner.registerSource(CRON_SOURCE_NAME, {
-                minPollMs: 200,
-                maxPollMs: noTaskWaitTime,
-                jitterMs: 100,
-            });
-        }
-        if (!state.runnerStarted) {
-            debug('STARTING RUNNER');
-            state.runnerStarted = true;
-            state.runner.start(() => tryRunOneTaskViaRunner());
-        } else {
-            state.runner.speedUp(CRON_SOURCE_NAME);
-        }
+    // If a previous stopCronTasks() is still draining the runner, wait
+    // for it before (re)starting. Without this the inner start() call
+    // would no-op (isRunning still true) and we would end up with
+    // runnerStarted=true but no actual workers.
+    if (state.runnerStopPromise) {
+        const pending = state.runnerStopPromise;
+        pending
+            .then(() => {
+                if (state.runnerStopPromise === pending) {
+                    state.runnerStopPromise = null;
+                }
+                // Re-evaluate: cron may have been stopped again in the
+                // meantime or runCronTasks may have flipped off.
+                if (state.runCronTasks || state.enforcedTasks.length > 0) {
+                    ensureStarted();
+                }
+            })
+            .catch((err) => onError(err as Error));
         return;
     }
 
-    // Serial path.
-    if (state.nextTaskTimeoutId) {
-        clearTimeout(state.nextTaskTimeoutId);
-        state.nextTaskTimeoutId = null;
+    if (!state.runner!.hasSource(CRON_SOURCE_NAME)) {
+        state.runner!.registerSource(CRON_SOURCE_NAME, {
+            minPollMs: 200,
+            maxPollMs: noTaskWaitTime,
+            jitterMs: 100,
+        });
     }
-    if (state.working) {
-        // The loop is mid-iteration. It will notice pendingWake in its
-        // finally block and schedule the next iteration at 0ms.
-        state.pendingWake = true;
-        return;
+    if (!state.runnerStarted) {
+        debug('STARTING RUNNER');
+        state.runnerStarted = true;
+        state.runner!.start(() => runATask());
+        // ConcurrentRunner persists source state across start/stop. A
+        // previous cycle may have left nextRunAt far in the future, which
+        // would make the fresh worker immediately sleep for the remainder
+        // of that window. Reset the schedule so the first iteration polls
+        // immediately (speedUp() fire-before-sleep-register races are
+        // moot if nextRunAt is already <= now).
+        state.runner!.setNextRunAt(CRON_SOURCE_NAME, Date.now());
+    } else {
+        state.runner!.speedUp(CRON_SOURCE_NAME);
     }
-    debug('STARTING LOOP');
-    runATask();
 }
 
 export function stopCronTasks(): void {
     debug('STOPPING CRON TASKS');
     state.runCronTasks = false;
-    if (state.nextTaskTimeoutId) {
-        clearTimeout(state.nextTaskTimeoutId);
-        state.nextTaskTimeoutId = null;
-    }
     if (state.runner && state.runnerStarted) {
         state.runnerStarted = false;
-        // Fire and forget: the historical API is synchronous (returns void).
+        // Fire and forget: the public API is synchronous (returns void).
         // Any in-flight tasks will finish on their own; further polls will
         // not happen because runnerStarted is already cleared. Track the
         // stop promise so ensureStarted can chain on it if the caller
