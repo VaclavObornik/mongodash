@@ -422,8 +422,11 @@ export class ReactiveTaskPlanner {
     private async processDeletions(deletedIdsByTask: Map<string, Set<unknown>>): Promise<void> {
         if (deletedIdsByTask.size === 0) return;
 
+        const entries = Array.from(deletedIdsByTask.entries());
+        const labels = entries.map(([taskName]) => `task=${taskName}`);
+
         const results = await Promise.allSettled(
-            Array.from(deletedIdsByTask.entries()).map(async ([taskName, ids]) => {
+            entries.map(async ([taskName, ids]) => {
                 if (ids.size === 0) return;
 
                 const taskDef = this.registry.getTask(taskName);
@@ -443,34 +446,41 @@ export class ReactiveTaskPlanner {
             }),
         );
 
-        this.throwOnAnyRejection(results, 'processDeletions');
+        this.throwOnAnyRejection(results, 'processDeletions', labels);
     }
 
     private async executeUpsertOperations(idsByCollection: Map<string, Set<unknown>>): Promise<void> {
         if (idsByCollection.size === 0) return;
 
+        const entries = Array.from(idsByCollection.entries());
+        const labels = entries.map(([collectionName]) => `collection=${collectionName}`);
+
         const results = await Promise.allSettled(
-            Array.from(idsByCollection.entries()).map(async ([collectionName, ids]) => {
+            entries.map(async ([collectionName, ids]) => {
                 if (ids.size === 0) return;
                 await this.ops.executePlanningPipeline(collectionName, Array.from(ids));
             }),
         );
 
-        this.throwOnAnyRejection(results, 'executeUpsertOperations');
+        this.throwOnAnyRejection(results, 'executeUpsertOperations', labels);
     }
 
-    private throwOnAnyRejection(results: PromiseSettledResult<unknown>[], context: string): void {
-        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-        if (failures.length === 0) return;
+    private throwOnAnyRejection(results: PromiseSettledResult<unknown>[], context: string, labels: string[] = []): void {
+        if (results.every((r) => r.status !== 'rejected')) return;
 
         // Build a single aggregated error so the caller (flushTaskBatch) reports it once.
         // Calling onError here for each failure would duplicate the report since flushTaskBatch
-        // also calls onError on the thrown error.
-        const messages = failures.map((f, i) => {
-            const msg = f.reason instanceof Error ? f.reason.message : String(f.reason);
-            return `[${i + 1}] ${msg}`;
-        });
-        throw new Error(`${context}: ${failures.length} of ${results.length} operation(s) failed. Errors: ${messages.join('; ')}`);
+        // also calls onError on the thrown error. We zip each result with its label (taskName /
+        // collectionName) so operators can immediately identify the failing pipeline or delete.
+        const failures: string[] = [];
+        for (let i = 0; i < results.length; i += 1) {
+            const r = results[i];
+            if (r.status !== 'rejected') continue;
+            const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+            const label = labels[i] ? ` (${labels[i]})` : '';
+            failures.push(`[${failures.length + 1}]${label} ${msg}`);
+        }
+        throw new Error(`${context}: ${failures.length} of ${results.length} operation(s) failed. Errors: ${failures.join('; ')}`);
     }
 
     private async handleStreamError(error: MongoError): Promise<void> {

@@ -45,17 +45,21 @@ export async function waitUntilReactiveTasksIdle(customOptions: WaitUntilReactiv
         const runner = _scheduler.concurrentRunnerInstance;
         const registry = _scheduler.getRegistry();
 
-        // --- 1. Global Checks (Always run) ---
-        // 1. Check Internal Buffers (Planner)
-        if (planner && !planner.isEmpty) {
-            debug('Planner not empty');
-            return false;
-        }
+        // --- 1. Global Checks ---
+        // Skipped in whitelist mode so that unrelated background work (other
+        // tests' planner events / worker tasks) does not block a scoped wait.
+        if (!hasWhitelist) {
+            // 1. Check Internal Buffers (Planner)
+            if (planner && !planner.isEmpty) {
+                debug('Planner not empty');
+                return false;
+            }
 
-        // 2. Check Active Workers (Runner)
-        if (runner && runner.activeWorkers > 0) {
-            debug(`Active workers: ${runner.activeWorkers}`);
-            return false;
+            // 2. Check Active Workers (Runner)
+            if (runner && runner.activeWorkers > 0) {
+                debug(`Active workers: ${runner.activeWorkers}`);
+                return false;
+            }
         }
 
         // --- 2. Check Database ---

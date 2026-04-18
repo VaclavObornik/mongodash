@@ -152,8 +152,17 @@ export class ReactiveTaskRepository<T extends Document> {
             };
         }
 
+        // CAS on startedAt: if another worker has since re-claimed this task
+        // (visibility timeout expired and a new claim set its own startedAt),
+        // the filter does not match and we leave the new claimant's state
+        // alone. A task without startedAt (shouldn't happen once claimed) falls
+        // back to _id-only matching to preserve BC.
+        const finalizeFilter: Filter<ReactiveTaskRecord<T>> = taskRecord.startedAt
+            ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt } as Filter<ReactiveTaskRecord<T>>)
+            : ({ _id: taskRecord._id } as Filter<ReactiveTaskRecord<T>>);
+
         await this.tasksCollection.updateOne(
-            { _id: taskRecord._id },
+            finalizeFilter,
             [
                 {
                     $set: updateSet,
