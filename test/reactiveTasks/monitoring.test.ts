@@ -3,7 +3,7 @@ import { find, noop, some } from 'lodash';
 import { Document } from 'mongodb';
 import * as sinon from 'sinon';
 import { createSandbox } from 'sinon';
-import { createReusableWaitableStub, getNewInstance, wait } from '../testHelpers';
+import { createReusableWaitableStub, getNewInstance, wait, waitUntil } from '../testHelpers';
 import { assertMetricValue, getMetric, getMetricValue, GlobalsRegistryDoc } from '../testHelpersReactive';
 
 const debug = _debug('mongodash:reactiveTasks:monitoring:test');
@@ -885,9 +885,17 @@ describe('Reactive Task Monitoring', () => {
         });
 
         await instance.mongodash.startReactiveTasks();
-        // Wait long enough for election + a push cycle so globalStats
-        // lands in the registry doc.
-        await wait(500);
+
+        // Poll the registry doc for the leader's pushed globalStats rather
+        // than relying on a fixed sleep (flaky on slow CI).
+        const globalsCollection = instance.mongodash.getCollection<GlobalsRegistryDoc>(GLOBAL_COLLECTION_NAME);
+        await waitUntil(
+            async () => {
+                const doc = await globalsCollection.findOne({ _id: 'reactive_tasks_metrics_registry' });
+                return !!doc?.globalStats;
+            },
+            { timeoutMs: 5000, message: 'leader pushed globalStats to the registry doc' },
+        );
 
         const scheduler = (instance.mongodash as any)._scheduler;
         sinon.stub(scheduler.leaderElector, 'isLeader').get(() => false);

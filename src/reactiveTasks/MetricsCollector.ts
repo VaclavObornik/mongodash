@@ -27,6 +27,14 @@ const REGISTRY_DOC_ID = 'reactive_tasks_metrics_registry';
 const STALE_THRESHOLD_MULTIPLIER = 20;
 const DEFAULT_PUSH_INTERVAL = 60000;
 
+/**
+ * Shape returned by `Registry.getMetricsAsJSON()` and consumed by
+ * `AggregatorRegistry.aggregate()`. Used for both local-instance
+ * metrics pushed into `instances[].metrics` and the Leader's bundled
+ * global stats stored under `globalStats.metrics`.
+ */
+type MetricsJson = MetricObjectWithValues<MetricValue<string>>[];
+
 type MonitoringOptions = NonNullable<ReactiveTaskSchedulerOptions['monitoring']>;
 
 const DEFAULT_OPTIONS: Required<Pick<MonitoringOptions, 'enabled' | 'scrapeMode' | 'readPreference' | 'pushIntervalMs'>> = {
@@ -296,7 +304,7 @@ export class MetricsCollector {
      * returns queue depth / lag / reconciliation / stream-lag gauges).
      */
     private async getClusterMetrics(): Promise<Registry | null> {
-        const allMetrics: object[] = [];
+        const allMetrics: MetricsJson[] = [];
 
         // 1. Fetch other instances' local metrics AND last-pushed global stats.
         const { otherInstancesMetrics, pushedGlobalStats } = await this.fetchClusterStateFromDb();
@@ -353,7 +361,7 @@ export class MetricsCollector {
     // Metrics Data Fetching
     // ========================================================================
 
-    private async fetchClusterStateFromDb(): Promise<{ otherInstancesMetrics: object[]; pushedGlobalStats: object | null }> {
+    private async fetchClusterStateFromDb(): Promise<{ otherInstancesMetrics: MetricsJson[]; pushedGlobalStats: MetricsJson | null }> {
         try {
             const registryDoc = (await this.globalsCollection.findOne(
                 { _id: REGISTRY_DOC_ID },
@@ -367,7 +375,7 @@ export class MetricsCollector {
             const now = Date.now();
             const staleThreshold = STALE_THRESHOLD_MULTIPLIER * this.options.pushIntervalMs;
 
-            const otherInstancesMetrics = Array.isArray(registryDoc.instances)
+            const otherInstancesMetrics: MetricsJson[] = Array.isArray(registryDoc.instances)
                 ? registryDoc.instances
                       .filter((inst) => {
                           const age = now - new Date(inst.lastSeen).getTime();
@@ -375,14 +383,14 @@ export class MetricsCollector {
                           const isSelf = inst.id === this.instanceId;
                           return !isStale && !isSelf && Array.isArray(inst.metrics);
                       })
-                      .map((inst) => inst.metrics as object[])
+                      .map((inst) => inst.metrics as MetricsJson)
                 : [];
 
-            let pushedGlobalStats: object | null = null;
+            let pushedGlobalStats: MetricsJson | null = null;
             if (registryDoc.globalStats && Array.isArray(registryDoc.globalStats.metrics)) {
                 const age = now - new Date(registryDoc.globalStats.updatedAt).getTime();
                 if (age <= staleThreshold) {
-                    pushedGlobalStats = registryDoc.globalStats.metrics as object;
+                    pushedGlobalStats = registryDoc.globalStats.metrics as MetricsJson;
                 }
             }
 
@@ -393,7 +401,7 @@ export class MetricsCollector {
         }
     }
 
-    private async getLocalMetricsAsJson(): Promise<object | null> {
+    private async getLocalMetricsAsJson(): Promise<MetricsJson | null> {
         if (!this.localPromRegistry) return null;
 
         try {
@@ -404,7 +412,7 @@ export class MetricsCollector {
         }
     }
 
-    private async getGlobalStatsAsJson(): Promise<object | null> {
+    private async getGlobalStatsAsJson(): Promise<MetricsJson | null> {
         if (!this.leaderElector.isLeader || !this.globalStatsRegistry) return null;
 
         try {
@@ -445,7 +453,7 @@ export class MetricsCollector {
         }
     }
 
-    private async publishMetricsToGlobalRegistry(localMetrics: MetricObjectWithValues<MetricValue<string>>[], globalStats: object | null): Promise<void> {
+    private async publishMetricsToGlobalRegistry(localMetrics: MetricsJson, globalStats: MetricsJson | null): Promise<void> {
         try {
             const threshold = STALE_THRESHOLD_MULTIPLIER * this.options.pushIntervalMs;
 
