@@ -131,6 +131,43 @@ describe('assertNoReactiveTaskErrors', () => {
         expect(error.message).toContain('Should Be Detected');
     });
 
+    it('ignores errors matching excludeErrors (string exact + RegExp)', async () => {
+        await reactiveTask({
+            task: 'multi_failing_task',
+            collection: 'test_assert_errors',
+            handler: async (ctx: any) => {
+                const doc = await testDB.findOne({ _id: ctx.docId });
+                if (doc?.kind === 'auth') throw new Error('Expected Failure');
+                if (doc?.kind === 'authz') throw new Error('Authorization Error: forbidden');
+                if (doc?.kind === 'real') throw new Error('real unexpected issue');
+            },
+        });
+
+        await startReactiveTasks();
+        const since = new Date();
+        const a = await testDB.insertOne({ kind: 'auth' });
+        const b = await testDB.insertOne({ kind: 'authz' });
+        await waitUntilReactiveTasksIdle({ timeoutMs: 8000 });
+
+        // Both errors are whitelisted (one as string exact, one via RegExp)
+        await assertNoReactiveTaskErrors({
+            since,
+            excludeErrors: ['Expected Failure', /Authorization Error/],
+            whitelist: [{ collection: 'test_assert_errors', filter: { _id: { $in: [a.insertedId, b.insertedId] } } }],
+        });
+
+        // A non-whitelisted error still fails the assertion.
+        const c = await testDB.insertOne({ kind: 'real' });
+        await waitUntilReactiveTasksIdle({ timeoutMs: 8000 });
+        await expect(
+            assertNoReactiveTaskErrors({
+                since,
+                excludeErrors: ['Expected Failure', /Authorization Error/],
+                whitelist: [{ collection: 'test_assert_errors', filter: { _id: c.insertedId } }],
+            }),
+        ).rejects.toThrow(/real unexpected issue/);
+    }, 20000);
+
     it('should ignore errors matching whitelist collection but NOT filter', async () => {
         await reactiveTask({
             task: 'target_task',
