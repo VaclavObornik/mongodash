@@ -24,7 +24,25 @@ const METRIC_NAMES = {
 };
 
 const REGISTRY_DOC_ID = 'reactive_tasks_metrics_registry';
+
+/**
+ * Instance entries older than this many push intervals are ignored
+ * during scrape aggregation and pruned by the leader's next push.
+ * Generous because an instance could be briefly unreachable but still
+ * alive; its counters are cumulative anyway.
+ */
 const STALE_THRESHOLD_MULTIPLIER = 20;
+
+/**
+ * The leader-pushed `globalStats` blob is treated as stale sooner than
+ * per-instance local metrics: it reflects a point-in-time DB query
+ * (queue depth / lag) and is meaningless if the leader stopped pushing.
+ * A tighter bound keeps follower-served gauges close to the stated
+ * "bounded by pushIntervalMs" contract while still tolerating a single
+ * missed push (e.g. slow DB on the leader).
+ */
+const GLOBAL_STATS_STALE_MULTIPLIER = 3;
+
 const DEFAULT_PUSH_INTERVAL = 60000;
 
 /**
@@ -389,7 +407,7 @@ export class MetricsCollector {
             let pushedGlobalStats: MetricsJson | null = null;
             if (registryDoc.globalStats && Array.isArray(registryDoc.globalStats.metrics)) {
                 const age = now - new Date(registryDoc.globalStats.updatedAt).getTime();
-                if (age <= staleThreshold) {
+                if (age <= GLOBAL_STATS_STALE_MULTIPLIER * this.options.pushIntervalMs) {
                     pushedGlobalStats = registryDoc.globalStats.metrics as MetricsJson;
                 }
             }
