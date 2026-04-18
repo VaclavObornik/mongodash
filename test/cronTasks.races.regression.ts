@@ -565,19 +565,18 @@ describe('cronTasks - regressions / internal invariants', () => {
 
         /** Race regression: failure of a single prolongLock query must not tear down the long-running handler's lock loop. */
         it('prolongLock failure is reported via onError but loop continues', async () => {
-            const lockTimes: { at: Date; lockedTill: Date }[] = [];
             const someMongoError = new Error('Some MongoError BBB');
 
-            const { taskId, task, getDocument, callTimes } = getTestingTask(async () => {
+            const { taskId, task, callTimes } = getTestingTask(async () => {
                 const taskStart = new Date();
 
                 prolongLockStub.resetHistory();
                 onError.resetHistory();
                 onNextCall(prolongLockStub).rejects(someMongoError);
 
+                // Keep the handler alive long enough for multiple prolong
+                // rounds, so the loop has a chance to fail once and recover.
                 while (Date.now() - taskStart.getTime() < 2 * lockTaskTime) {
-                    const lockedTill = (await getDocument()).runSince;
-                    lockTimes.push({ at: new Date(), lockedTill });
                     await wait(15 * 1000);
                 }
             });
@@ -588,7 +587,7 @@ describe('cronTasks - regressions / internal invariants', () => {
                 await sandbox.clock.tickAsync(100);
             }
 
-            assert(prolongLockStub.callCount > 2);
+            assert(prolongLockStub.callCount > 2, 'prolong fired multiple times despite one rejection');
             assert.strictEqual(onError.callCount, 1);
             assert.deepStrictEqual(onError.firstCall.args, [someMongoError]);
             assert(onError.calledAfter(task), 'onError must fire after the handler entered');
