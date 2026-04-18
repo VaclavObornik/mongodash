@@ -325,15 +325,7 @@ export class ReactiveTaskScheduler {
             onError,
         );
 
-        this.metricsCollector = new MetricsCollector(
-            this.instanceId,
-            this.registry,
-            globalsCollection,
-            this.leaderElector,
-            this.options.monitoring,
-            onInfo,
-            onError,
-        );
+        this.metricsCollector = new MetricsCollector(this.instanceId, this.registry, globalsCollection, this.leaderElector, this.options.monitoring, onError);
 
         this.worker = new ReactiveTaskWorker(
             this.instanceId,

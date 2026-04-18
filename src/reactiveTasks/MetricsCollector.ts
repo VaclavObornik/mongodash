@@ -1,14 +1,9 @@
-import debug from 'debug';
 import type { Counter, Gauge, Histogram, MetricObjectWithValues, MetricValue, Registry } from 'prom-client';
 import { GlobalsCollection } from '../globalsCollection';
 import { defaultOnError, OnError } from '../OnError';
-import { defaultOnInfo, OnInfo } from '../OnInfo';
 import { LeaderElector } from './LeaderElector';
-import { ReactiveTaskPlanner } from './ReactiveTaskPlanner';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import { MetaDocument, ReactiveTaskSchedulerOptions, REACTIVE_TASK_META_DOC_ID, RegistryDocument } from './ReactiveTaskTypes';
-
-const _debugLogger = debug('mongodash:reactiveTasks:metrics');
 
 // ============================================================================
 // Constants
@@ -63,7 +58,6 @@ export class MetricsCollector {
     private readonly registry: ReactiveTaskRegistry;
     private readonly globalsCollection: GlobalsCollection;
     private readonly leaderElector: LeaderElector;
-    private readonly onInfo: OnInfo;
     private readonly onError: OnError;
 
     // Prom-client module (dynamically loaded for optional peer dependency)
@@ -86,7 +80,6 @@ export class MetricsCollector {
     // State
     private pushInterval?: NodeJS.Timeout;
     private queueMetricsPromise: Promise<void> | null = null;
-    public planner?: ReactiveTaskPlanner;
 
     // ========================================================================
     // Constructor
@@ -98,7 +91,6 @@ export class MetricsCollector {
         globalsCollection: GlobalsCollection,
         leaderElector: LeaderElector,
         options: ReactiveTaskSchedulerOptions['monitoring'],
-        onInfo: OnInfo = defaultOnInfo,
         onError: OnError = defaultOnError,
     ) {
         this.instanceId = instanceId;
@@ -107,7 +99,6 @@ export class MetricsCollector {
         this.leaderElector = leaderElector;
         this.options = { ...DEFAULT_OPTIONS, ...options };
         this.enabled = this.options.enabled;
-        this.onInfo = onInfo;
         this.onError = onError;
 
         if (this.enabled) {
