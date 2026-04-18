@@ -52,6 +52,12 @@ export {
     REACTIVE_TASK_META_DOC_ID,
     TaskConditionFailedError,
 } from './ReactiveTaskTypes';
+/**
+ * @internal
+ * Exported only for the built-in OperationalTaskController / dashboard bridge
+ * and for advanced testing. Not part of the public API contract: fields and
+ * methods on the scheduler instance can change between minor versions.
+ */
 export { scheduler as _scheduler };
 
 import { onError } from '../OnError';
@@ -198,7 +204,7 @@ export class ReactiveTaskScheduler {
         return this._forceDebounce;
     }
 
-    public async addTask(taskDef: ReactiveTask<Document>): Promise<void> {
+    public async addTask<T extends Document>(taskDef: ReactiveTask<T>): Promise<void> {
         if (this.isRunning) {
             throw new Error('Cannot add task after scheduler has started.');
         }
@@ -207,7 +213,9 @@ export class ReactiveTaskScheduler {
             throw new Error(`Task with name '${taskDef.task}' already exists.`);
         }
 
-        await this.registry.addTask(taskDef);
+        // The registry stores tasks type-erased to Document; each task's handler
+        // was captured with its concrete T so it stays type-safe at invocation time.
+        await this.registry.addTask(taskDef as unknown as ReactiveTask<Document>);
     }
 
     /**
@@ -407,8 +415,7 @@ export function init(initOptions: InitOptions): void {
 }
 
 export async function reactiveTask<T extends Document = Document>(taskDef: ReactiveTask<T>): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await scheduler.addTask(taskDef as ReactiveTask<any>);
+    await scheduler.addTask(taskDef);
 }
 
 export async function stopReactiveTasks(): Promise<void> {

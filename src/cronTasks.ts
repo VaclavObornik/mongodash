@@ -574,8 +574,10 @@ export async function getCronTasksList(query: CronTaskQuery = {}): Promise<CronP
 }
 
 /**
- * Triggers a cron task immediately.
- * Alias for scheduleCronTaskImmediately but returns the new state or confirmation.
+ * @deprecated Alias for {@link scheduleCronTaskImmediately}. Prefer that name for
+ * clarity - it describes exactly what happens (the task is scheduled to run on
+ * the next polling tick, not necessarily this very millisecond). This alias will
+ * be removed in a future major version.
  */
 export async function triggerCronTask(taskId: TaskId): Promise<void> {
     return scheduleCronTaskImmediately(taskId);
