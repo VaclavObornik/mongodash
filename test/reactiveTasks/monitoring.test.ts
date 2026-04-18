@@ -824,9 +824,11 @@ describe('Reactive Task Monitoring', () => {
         expect(followerRegistry).toBeDefined();
         const followerJson = await followerRegistry!.getMetricsAsJSON();
 
-        // Follower should NOT have Global Stats (computed only by leader)
-        expect(find(followerJson, { name: 'reactive_tasks_queue_depth' })).toBeUndefined();
-        expect(find(followerJson, { name: 'reactive_tasks_global_lag_seconds' })).toBeUndefined();
+        // Follower should now include Global Stats too: the leader pushes them
+        // to the registry doc on each interval, and the follower reads them
+        // there. Freshness is bounded by pushIntervalMs (100 in this test).
+        expect(find(followerJson, { name: 'reactive_tasks_queue_depth' })).toBeDefined();
+        expect(find(followerJson, { name: 'reactive_tasks_global_lag_seconds' })).toBeDefined();
 
         // Follower should have Duration metrics (aggregated from all instances including itself)
         const followerDuration = find(followerJson, { name: 'reactive_tasks_duration_seconds' });
@@ -870,56 +872,35 @@ describe('Reactive Task Monitoring', () => {
     });
 
     it('should return aggregated metrics (including external Global Stats) when in Cluster Mode as Follower', async () => {
+        // Single-instance cluster: the instance becomes Leader on start
+        // and MetricsCollector.start() pushes both local metrics and the
+        // fresh global stats to the registry doc immediately. A follower
+        // scrape (simulated by stubbing `isLeader` to false afterwards)
+        // must return the previously-pushed global stats from the DB -
+        // the whole point of the "cluster" mode contract documented in
+        // docs/reactive-tasks/monitoring.md.
         await instance.initInstance({
             globalsCollection: GLOBAL_COLLECTION_NAME,
-            monitoring: { enabled: true, scrapeMode: 'cluster' },
+            monitoring: { enabled: true, scrapeMode: 'cluster', pushIntervalMs: 100 },
         });
 
         await instance.mongodash.startReactiveTasks();
+        // Wait long enough for election + a push cycle so globalStats
+        // lands in the registry doc.
         await wait(500);
 
         const scheduler = (instance.mongodash as any)._scheduler;
-        // Mock Follower role
         sinon.stub(scheduler.leaderElector, 'isLeader').get(() => false);
-
-        // Mock DB State: Another instance is Leader and pushed Global Stats (or at least unrelated metrics)
-        // Note: Global Stats (Queue/Lag) are usually computed on-the-fly and NOT pushed to DB 'instances' array.
-        // Wait, MetricsCollector implementation:
-        // "We do NOT push Global Stats to the DB registry doc, only Local/Instance stats."
-        // "Global stats are calculated on-the-fly by the Leader."
-
-        // IF we are a Follower in Cluster Mode:
-        // getAggregatedRegistry -> reads DB instances (aggregated local stats)
-        // It DOES NOT compute Global Stats because !isLeader.
-        // It DOES NOT fetch Global Stats from DB because they aren't there.
-        //
-        // So a Follower in Cluster Mode will return Aggregated Local Metrics (Duration/Retries) from all nodes,
-        // BUT IT WILL MISS GLOBAL STATS (Queue/Lag) unless the Leader is pushing them?
-        //
-        // Re-reading MetricsCollector.ts:
-        // "Global stats are calculated on-the-fly by the Leader."
-        // "We do NOT push Global Stats to the DB registry doc"
-        //
-        // This means if you hit a Follower's /metrics endpoint in Cluster Mode, you will NOT get Queue Depth / Lag.
-        // You only get them if you hit the Leader.
-        // UNLESS the aggregated view was supposed to include them?
-        // If they are not in DB, Follower cannot see them.
-        // The only way Follower could see them is if Leader pushed them to DB.
-        // But the comment says "We do NOT push Global Stats".
-        //
-        // So checking "should return aggregated metrics (including external Global Stats)" might be invalid expectation
-        // based on current implementation if Global Stats are not persisted.
-        //
-        // Let's verify this behavior.
-        // Expectation: Follower in Cluster Mode returns Aggregated Local Metrics, but NO Queue Depth.
 
         const registry = await instance.mongodash.getPrometheusMetrics();
         const json = await registry!.getMetricsAsJSON();
 
-        // Should NOT have Queue Depth (because we are Follower and we don't compute it, and it's not in DB)
-        expect(find(json, { name: 'reactive_tasks_queue_depth' })).toBeUndefined();
+        // Queue depth was pushed by the (pre-stub) leader; follower
+        // now reads it from the DB registry doc.
+        expect(find(json, { name: 'reactive_tasks_queue_depth' })).toBeDefined();
+        expect(find(json, { name: 'reactive_tasks_global_lag_seconds' })).toBeDefined();
 
-        // Should have Local metrics
+        // Local metrics still present.
         expect(find(json, { name: 'reactive_tasks_duration_seconds' })).toBeDefined();
 
         await instance.mongodash.stopReactiveTasks();

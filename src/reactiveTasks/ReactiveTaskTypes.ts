@@ -121,6 +121,19 @@ export interface RegistryDocument {
         lastSeen: Date | string; // Date or $$NOW string
         metrics: unknown; // MetricObjectWithValues[]
     }>;
+    /**
+     * Cluster-wide stats (queue depth, global lag, change-stream lag,
+     * last reconciliation). Written only by the current Leader on each
+     * push; non-leaders read it so that a follower-served scrape in
+     * `cluster` mode can return a complete metrics view. A single field
+     * (not per-instance) prevents double-counting across leader
+     * transitions - the next leader overwrites on its first push.
+     */
+    globalStats?: {
+        updatedAt: Date | string; // Date or $$NOW
+        leaderId: string;
+        metrics: unknown; // MetricObjectWithValues[]
+    };
 }
 
 /**

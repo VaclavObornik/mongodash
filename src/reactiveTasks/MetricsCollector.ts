@@ -1,3 +1,4 @@
+import type { Document } from 'mongodb';
 import type { Counter, Gauge, Histogram, MetricObjectWithValues, MetricValue, Registry } from 'prom-client';
 import { GlobalsCollection } from '../globalsCollection';
 import { defaultOnError, OnError } from '../OnError';
@@ -48,7 +49,11 @@ const DEFAULT_OPTIONS: Required<Pick<MonitoringOptions, 'enabled' | 'scrapeMode'
  * - **local**: Returns metrics from THIS instance only.
  *   Use when Prometheus scrapes each pod individually (K8s Pod Monitors).
  *
- * Global stats (queue depth, lag) are computed on-the-fly by the **Leader only**.
+ * Global stats (queue depth, lag, change-stream lag, reconciliation timestamp)
+ * are computed by the Leader. In `cluster` mode the Leader also pushes these
+ * values into the registry document on each push interval so a scrape that
+ * lands on a Follower still returns a complete metrics view - bounded by
+ * `pushIntervalMs` staleness.
  */
 export class MetricsCollector {
     // Configuration
@@ -286,22 +291,29 @@ export class MetricsCollector {
     /**
      * Returns aggregated metrics from ALL instances.
      * Fetches other instances' metrics from DB and merges with fresh local metrics.
-     * Leader also includes global stats.
+     * Global stats: leader computes fresh; followers read the leader's last
+     * push from the registry doc (so a scrape that hits a follower still
+     * returns queue depth / lag / reconciliation / stream-lag gauges).
      */
     private async getClusterMetrics(): Promise<Registry | null> {
         const allMetrics: object[] = [];
 
-        // 1. Fetch other instances' metrics from DB
-        const otherInstanceMetrics = await this.fetchOtherInstancesMetrics();
-        allMetrics.push(...otherInstanceMetrics);
+        // 1. Fetch other instances' local metrics AND last-pushed global stats.
+        const { otherInstancesMetrics, pushedGlobalStats } = await this.fetchClusterStateFromDb();
+        allMetrics.push(...otherInstancesMetrics);
 
-        // 2. Add fresh local metrics
+        // 2. Add fresh local metrics from this instance.
         const localMetrics = await this.getLocalMetricsAsJson();
         if (localMetrics) allMetrics.push(localMetrics);
 
-        // 3. If leader, add global stats
-        const globalStats = await this.getGlobalStatsAsJson();
-        if (globalStats) allMetrics.push(globalStats);
+        // 3. Global stats: leader uses fresh on-the-fly values; followers
+        //    fall back to what the current leader last pushed.
+        if (this.leaderElector.isLeader) {
+            const freshGlobalStats = await this.getGlobalStatsAsJson();
+            if (freshGlobalStats) allMetrics.push(freshGlobalStats);
+        } else if (pushedGlobalStats) {
+            allMetrics.push(pushedGlobalStats);
+        }
 
         // 4. Aggregate all
         if (allMetrics.length === 0) return null;
@@ -341,31 +353,43 @@ export class MetricsCollector {
     // Metrics Data Fetching
     // ========================================================================
 
-    private async fetchOtherInstancesMetrics(): Promise<object[]> {
+    private async fetchClusterStateFromDb(): Promise<{ otherInstancesMetrics: object[]; pushedGlobalStats: object | null }> {
         try {
             const registryDoc = (await this.globalsCollection.findOne(
                 { _id: REGISTRY_DOC_ID },
                 { readPreference: this.options.readPreference },
             )) as RegistryDocument | null;
 
-            if (!registryDoc?.instances || !Array.isArray(registryDoc.instances)) {
-                return [];
+            if (!registryDoc) {
+                return { otherInstancesMetrics: [], pushedGlobalStats: null };
             }
 
             const now = Date.now();
             const staleThreshold = STALE_THRESHOLD_MULTIPLIER * this.options.pushIntervalMs;
 
-            return registryDoc.instances
-                .filter((inst) => {
-                    const age = now - new Date(inst.lastSeen).getTime();
-                    const isStale = age > staleThreshold;
-                    const isSelf = inst.id === this.instanceId;
-                    return !isStale && !isSelf && Array.isArray(inst.metrics);
-                })
-                .map((inst) => inst.metrics as object[]);
+            const otherInstancesMetrics = Array.isArray(registryDoc.instances)
+                ? registryDoc.instances
+                      .filter((inst) => {
+                          const age = now - new Date(inst.lastSeen).getTime();
+                          const isStale = age > staleThreshold;
+                          const isSelf = inst.id === this.instanceId;
+                          return !isStale && !isSelf && Array.isArray(inst.metrics);
+                      })
+                      .map((inst) => inst.metrics as object[])
+                : [];
+
+            let pushedGlobalStats: object | null = null;
+            if (registryDoc.globalStats && Array.isArray(registryDoc.globalStats.metrics)) {
+                const age = now - new Date(registryDoc.globalStats.updatedAt).getTime();
+                if (age <= staleThreshold) {
+                    pushedGlobalStats = registryDoc.globalStats.metrics as object;
+                }
+            }
+
+            return { otherInstancesMetrics, pushedGlobalStats };
         } catch (e) {
             this.onError(e as Error);
-            return [];
+            return { otherInstancesMetrics: [], pushedGlobalStats: null };
         }
     }
 
@@ -409,14 +433,19 @@ export class MetricsCollector {
         if (!this.localPromRegistry) return;
 
         try {
-            const metricsJson = await this.localPromRegistry.getMetricsAsJSON();
-            await this.publishMetricsToGlobalRegistry(metricsJson);
+            const localMetrics = await this.localPromRegistry.getMetricsAsJSON();
+            // Leader bundles the freshly computed global stats into the
+            // registry document so follower-served scrapes in cluster
+            // mode return a complete metrics view. Non-leaders write
+            // only their local metrics.
+            const globalStatsToPush = this.leaderElector.isLeader ? await this.getGlobalStatsAsJson() : null;
+            await this.publishMetricsToGlobalRegistry(localMetrics, globalStatsToPush);
         } catch (e) {
             this.onError(e as Error);
         }
     }
 
-    private async publishMetricsToGlobalRegistry(metrics: MetricObjectWithValues<MetricValue<string>>[]): Promise<void> {
+    private async publishMetricsToGlobalRegistry(localMetrics: MetricObjectWithValues<MetricValue<string>>[], globalStats: object | null): Promise<void> {
         try {
             const threshold = STALE_THRESHOLD_MULTIPLIER * this.options.pushIntervalMs;
 
@@ -425,22 +454,27 @@ export class MetricsCollector {
                 ? { $and: [{ $ne: ['$$inst.id', this.instanceId] }, { $lt: [{ $subtract: ['$$NOW', '$$inst.lastSeen'] }, threshold] }] }
                 : { $ne: ['$$inst.id', this.instanceId] };
 
-            await this.globalsCollection.updateOne(
-                { _id: REGISTRY_DOC_ID },
-                [
-                    {
-                        $set: {
-                            instances: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ['$instances', []] }, as: 'inst', cond: keepCondition } },
-                                    [{ id: this.instanceId, lastSeen: '$$NOW', metrics }],
-                                ],
-                            },
+            const pipeline: Document[] = [
+                {
+                    $set: {
+                        instances: {
+                            $concatArrays: [
+                                { $filter: { input: { $ifNull: ['$instances', []] }, as: 'inst', cond: keepCondition } },
+                                [{ id: this.instanceId, lastSeen: '$$NOW', metrics: localMetrics }],
+                            ],
                         },
                     },
-                ],
-                { upsert: true },
-            );
+                },
+            ];
+            if (globalStats) {
+                pipeline.push({
+                    $set: {
+                        globalStats: { updatedAt: '$$NOW', leaderId: this.instanceId, metrics: globalStats },
+                    },
+                });
+            }
+
+            await this.globalsCollection.updateOne({ _id: REGISTRY_DOC_ID }, pipeline, { upsert: true });
         } catch (e) {
             this.onError(e as Error);
         }
