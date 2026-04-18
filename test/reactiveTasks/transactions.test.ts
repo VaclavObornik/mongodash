@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { waitUntil } from '../../src/testing';
 import { getNewInstance, wait } from '../testHelpers';
 
 describe('Reactive Task Transactions', () => {
@@ -155,20 +156,42 @@ describe('Reactive Task Transactions', () => {
         const courseId = new ObjectId();
         await collection.insertOne({ _id: courseId });
 
+        let handlerCompletions = 0;
+        let secondMarkCompletedThrew: Error | null = null;
         await instance.mongodash.reactiveTask({
             collection: SOURCE_COLLECTION,
             task: 'idempotent-check',
             handler: async (context: any) => {
                 const { markCompleted } = context;
                 await markCompleted();
-                await markCompleted(); // Should not error
+                try {
+                    await markCompleted(); // idempotent: must not throw
+                } catch (err) {
+                    secondMarkCompletedThrew = err as Error;
+                    throw err;
+                }
+                handlerCompletions += 1;
             },
         });
 
         await instance.mongodash.startReactiveTasks();
-        await wait(1000);
 
         const tasksCollection = instance.mongodash.getCollection(`${SOURCE_COLLECTION}_tasks`);
+        // Wait for the specific task record to reach 'completed'. Tolerant of
+        // slow combinations (e.g. MongoDB 6 + driver 8 on CI) where a fixed
+        // wait(1000) races with leader election + reconciliation + debounce.
+        await waitUntil(
+            async () => {
+                const doc = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
+                return doc?.status === 'completed';
+            },
+            { timeoutMs: 15000, pollIntervalMs: 100 },
+        );
+
+        // Actually exercise the "idempotent" assertion.
+        expect(secondMarkCompletedThrew).toBeNull();
+        expect(handlerCompletions).toBe(1);
+
         const task = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
         expect(task?.status).toBe('completed');
     });
