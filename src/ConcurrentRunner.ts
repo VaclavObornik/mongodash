@@ -1,7 +1,7 @@
-import * as _debug from 'debug';
 import { defaultOnError, OnError } from './OnError';
 
-const debug = _debug('mongodash:ConcurrentRunner');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const debug = require('debug')('mongodash:ConcurrentRunner') as (...args: unknown[]) => void;
 
 export interface ConcurrentRunnerOptions {
     concurrency: number;
