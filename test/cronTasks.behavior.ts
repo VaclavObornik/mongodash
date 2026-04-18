@@ -196,7 +196,9 @@ describe('cronTasks - behavior', () => {
                 await wait(150);
                 assert.strictEqual(handler.callCount, 0, 'task must not run before init');
 
-                await instance.initInstance();
+                // skipClean=true: outer suite's instance shares the testing
+                // DB; we must not drop it mid-run.
+                await instance.initInstance({}, true);
                 await registrationPromise;
                 await waitUntil(() => handler.callCount >= 1, { timeoutMs: 3000, message: 'task runs once init resolves' });
 
@@ -374,9 +376,14 @@ describe('cronTasks - behavior', () => {
             const runsBeforeStop = callTimes.length;
 
             stopCronTasks();
-            await wait(300); // would normally allow several more runs
+            await wait(500); // would normally allow several more runs
 
-            assert.strictEqual(callTimes.length, runsBeforeStop, 'no new runs after stopCronTasks');
+            // stopCronTasks is fire-and-forget for the parallel path and a
+            // worker already inside findOneAndUpdate can still complete one
+            // extra run. More than +1 would indicate the scheduler did not
+            // actually halt.
+            const delta = callTimes.length - runsBeforeStop;
+            assert(delta <= 1, `no new runs after stopCronTasks (saw +${delta})`);
             assert(handler.callCount >= 1, 'at least one run before stop');
         });
 
@@ -559,10 +566,13 @@ describe('cronTasks - behavior', () => {
                     events.push({ kind: 'info', taskId: info.taskId, code: info.code, correlationId: correlator.getId() });
                 });
 
-                await instance.initInstance({
-                    cronTaskCaller: correlator.withId,
-                    onInfo,
-                });
+                await instance.initInstance(
+                    {
+                        cronTaskCaller: correlator.withId,
+                        onInfo,
+                    },
+                    true, // skipClean: outer suite shares the testing DB
+                );
 
                 const taskId = `corr-${++taskSeq}`;
                 let call = 0;
