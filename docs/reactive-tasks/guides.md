@@ -301,4 +301,4 @@ Testing asynchronous, event-driven workflows can be challenging. Mongodash provi
 
 Use \`waitUntilReactiveTasksIdle\` to robustly wait for all side-effects (including retries and cascading tasks) to finish before making assertions.
 
-See **[Testing Utilities](../testing.md)** for detailed usage and examples.
+See **[Testing Reactive Tasks](./testing.md)** for detailed usage and examples.
