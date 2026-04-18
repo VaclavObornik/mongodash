@@ -10,6 +10,16 @@
             "types": "./dist/types/index.d.ts",
             "import": "./dist/lib/index.js",
             "default": "./dist/lib/index.js"
+        },
+        "./testing": {
+            "types": "./dist/types/testing/index.d.ts",
+            "import": "./dist/lib/testing/index.js",
+            "default": "./dist/lib/testing/index.js"
+        }
+    },
+    "typesVersions": {
+        "*": {
+            "testing": ["./dist/types/testing/index.d.ts"]
         }
     },
     "files": [
