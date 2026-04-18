@@ -66,6 +66,18 @@ export class ConcurrentRunner {
         this.isRunning = true;
         this.tryRunATask = tryRunATask;
 
+        // Source metadata is intentionally preserved across stop() (callers
+        // may re-use the same runner instance), but a stale nextRunAt from
+        // a previous cycle would otherwise make freshly spawned workers
+        // sleep for the remainder of that (possibly hour-long) window
+        // before noticing new work. Reset schedules so a fresh start polls
+        // immediately.
+        const now = Date.now();
+        for (const state of this.sources.values()) {
+            state.nextRunAt = now;
+            state.currentBackoff = state.options.minPollMs;
+        }
+
         for (let i = 0; i < this.options.concurrency; i++) {
             this.workers.push(this.runWorker());
         }
@@ -99,10 +111,12 @@ export class ConcurrentRunner {
      * is due - e.g. cron scheduling an hour out - to skip wasted polls.
      *
      * - `runAt` must be a finite number; non-finite values are ignored.
-     * - The timestamp is *not* clamped relative to `now`. Passing a value in
-     *   the past is valid and behaves like {@link speedUp}; passing a value
-     *   far in the future means the source will not be polled until then
-     *   (or until `speedUp` / `setNextRunAt` is called again).
+     * - If `state.nextRunAt` is already at or before `now`, the write is
+     *   skipped: something more urgent (usually {@link speedUp}) has
+     *   already signalled an immediate poll and we must not push it
+     *   back out. The worker picks up the signal on its next iteration.
+     * - Otherwise `nextRunAt` is overwritten with `runAt` (even if `runAt`
+     *   is in the past - that behaves like {@link speedUp}).
      * - Back-off is reset so a subsequent wake-up fires at `minPollMs`.
      */
     public setNextRunAt(sourceName: string, runAt: number): void {
@@ -110,7 +124,9 @@ export class ConcurrentRunner {
         if (!state) return;
         if (!Number.isFinite(runAt)) return;
         state.currentBackoff = state.options.minPollMs;
-        state.nextRunAt = runAt;
+        if (state.nextRunAt > Date.now()) {
+            state.nextRunAt = runAt;
+        }
         // Wake workers so any currently-sleeping one can recompute its wait.
         this.wakeUpAllWorkers();
     }
@@ -187,10 +203,12 @@ export class ConcurrentRunner {
         return new Promise<void>((resolve) => {
             if (ms <= 0) return resolve();
 
+            let resolved = false;
             let timer: NodeJS.Timeout;
             const wakeUp = () => {
+                if (resolved) return;
+                resolved = true;
                 clearTimeout(timer);
-                // Remove this wakeUp from the list if it's there (it might be called by speedUp)
                 const index = this.wakeUpSignals.indexOf(wakeUp);
                 if (index !== -1) {
                     this.wakeUpSignals.splice(index, 1);
@@ -200,6 +218,19 @@ export class ConcurrentRunner {
 
             this.wakeUpSignals.push(wakeUp);
             timer = setTimeout(wakeUp, ms);
+
+            // Lost-wake-up guard: speedUp() / setNextRunAt() called
+            // between the readiness check in runWorker and this
+            // registration cannot pop a signal that doesn't exist yet.
+            // Re-check after registration and wake immediately if any
+            // source has become due.
+            const now = Date.now();
+            for (const state of this.sources.values()) {
+                if (state.nextRunAt <= now) {
+                    wakeUp();
+                    return;
+                }
+            }
         });
     }
 

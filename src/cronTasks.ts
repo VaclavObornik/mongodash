@@ -417,7 +417,6 @@ async function runATask(): Promise<void> {
     await initPromise;
     const enforcedTask = state.enforcedTasks.shift() || null;
     let task: Task | null = null;
-    const tasksAtStart = state.tasks.size;
 
     try {
         task = await findATaskToRun(enforcedTask);
@@ -441,12 +440,10 @@ async function runATask(): Promise<void> {
         if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
             if (state.runCronTasks) {
                 const waitMs = await getWaitTimeByNextTask();
-                // If cronTask() added a new task while getWaitTimeByNextTask
-                // was awaiting the DB, that query used a stale task filter
-                // and its waitMs may be way too long. Force an immediate
-                // re-poll so the newly registered task is picked up.
-                const readyNow = state.tasks.size > tasksAtStart || state.enforcedTasks.length > 0;
-                state.runner.setNextRunAt(CRON_SOURCE_NAME, readyNow ? Date.now() : Date.now() + waitMs);
+                // ConcurrentRunner's setNextRunAt no-ops if a concurrent
+                // speedUp() already pulled nextRunAt to the past, so our
+                // potentially-stale waitMs cannot swallow that signal.
+                state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
             } else {
                 // Once runCronTasks has been turned off and there is no
                 // enforced task to run we stop polling entirely. A later
@@ -497,13 +494,6 @@ function ensureStarted(): void {
         debug('STARTING RUNNER');
         state.runnerStarted = true;
         state.runner!.start(() => runATask());
-        // ConcurrentRunner persists source state across start/stop. A
-        // previous cycle may have left nextRunAt far in the future, which
-        // would make the fresh worker immediately sleep for the remainder
-        // of that window. Reset the schedule so the first iteration polls
-        // immediately (speedUp() fire-before-sleep-register races are
-        // moot if nextRunAt is already <= now).
-        state.runner!.setNextRunAt(CRON_SOURCE_NAME, Date.now());
     } else {
         state.runner!.speedUp(CRON_SOURCE_NAME);
     }
