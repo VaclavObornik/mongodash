@@ -113,10 +113,9 @@ export class ReactiveTaskWorker {
                 // task complete before the new owner finishes.
                 return;
             }
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
-            await entry.repository.finalizeTask(
+            const finalized = await entry.repository.finalizeTask(
                 taskRecord,
                 taskDef.retryStrategy,
                 undefined,
@@ -125,6 +124,26 @@ export class ReactiveTaskWorker {
                 taskDef.executionHistoryLimit,
                 session ? { session } : undefined,
             );
+
+            if (!finalized) {
+                // Silent lock loss: startedAt changed out from under us
+                // between the continuous-lock CAS renewals. Treat it the
+                // same as an explicit onLockLost callback would: flip the
+                // flag so later paths skip their own writes / metrics, and
+                // surface the event via onInfo for operator visibility.
+                if (!lockLost) {
+                    lockLost = true;
+                    this.metricsCollector?.recordLockLost(taskRecord.task);
+                    onInfo({
+                        message: `Reactive task '${taskRecord.task}' finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
+                        taskId: taskRecord._id.toString(),
+                        code: CODE_REACTIVE_TASK_LOCK_LOST,
+                    });
+                }
+                return;
+            }
+
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
         };
 
         const context: ReactiveTaskContext<Document> = {
@@ -298,11 +317,9 @@ export class ReactiveTaskWorker {
                 return;
             }
 
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
-
             const entry = this.registry.getEntry(tasksCollection.collectionName);
 
-            await entry.repository.finalizeTask(
+            const finalized = await entry.repository.finalizeTask(
                 taskRecord,
                 taskDef.retryStrategy,
                 error as Error,
@@ -310,6 +327,21 @@ export class ReactiveTaskWorker {
                 { durationMs: duration },
                 taskDef.executionHistoryLimit,
             );
+
+            if (!finalized) {
+                // Silent lock loss (startedAt no longer matches): another
+                // worker owns the task now. Do not count this execution as
+                // a failure - the replacement will record its own outcome.
+                this.metricsCollector?.recordLockLost(taskRecord.task);
+                onInfo({
+                    message: `Reactive task '${taskRecord.task}' error-finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
+                    taskId: taskRecord._id.toString(),
+                    code: CODE_REACTIVE_TASK_LOCK_LOST,
+                });
+                return;
+            }
+
+            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
         }
     }
 }

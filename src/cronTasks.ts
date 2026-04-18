@@ -517,7 +517,12 @@ async function tryRunOneTaskViaRunner(): Promise<void> {
                 // polling entirely. A later runCronTask() / startCronTasks()
                 // will re-enter ensureStarted which restarts the runner.
                 state.runnerStarted = false;
-                state.runner.stop().catch((err) => onError(err as Error));
+                // Track the stop promise here too so a rapid runCronTask()
+                // call that arrives mid-drain chains on it in ensureStarted
+                // (see the same race covered by stopCronTasks).
+                state.runnerStopPromise = state.runner.stop().catch((err) => {
+                    onError(err as Error);
+                });
             }
         }
     }

@@ -74,6 +74,15 @@ export class ReactiveTaskRepository<T extends Document> {
         }
     }
 
+    /**
+     * Finalize a task record (success or failure). Returns `true` when the
+     * update matched the record, `false` when it did not - which in
+     * practice means another worker has since re-claimed the task (its
+     * startedAt no longer matches) and this call was a no-op.
+     *
+     * Callers that care about the distinction (e.g. to suppress success /
+     * failure metrics for a stolen task) should inspect the return value.
+     */
     public async finalizeTask(
         taskRecord: ReactiveTaskRecord<T>,
         strategy: ReactiveTaskRetryStrategy,
@@ -82,7 +91,7 @@ export class ReactiveTaskRepository<T extends Document> {
         executionStats?: { durationMs: number },
         executionHistoryLimit = 5,
         options?: { session?: import('mongodb').ClientSession },
-    ): Promise<void> {
+    ): Promise<boolean> {
         const isError = !!error;
         const errorMessage = error?.message || 'Unknown error';
 
@@ -161,7 +170,7 @@ export class ReactiveTaskRepository<T extends Document> {
             ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt } as Filter<ReactiveTaskRecord<T>>)
             : ({ _id: taskRecord._id } as Filter<ReactiveTaskRecord<T>>);
 
-        await this.tasksCollection.updateOne(
+        const result = await this.tasksCollection.updateOne(
             finalizeFilter,
             [
                 {
@@ -182,6 +191,8 @@ export class ReactiveTaskRepository<T extends Document> {
             ],
             options || {},
         );
+
+        return result.matchedCount > 0;
     }
 
     public async deferTask(taskRecord: ReactiveTaskRecord<T>, delay: number | Date): Promise<void> {
