@@ -226,13 +226,6 @@ Override `MONGODB_URI` to point at any replica set you already have.
 | `npm run docs:dev` | Run the VitePress docs on `localhost:5173`. |
 | `npm run test:stryker` | Mutation testing (slow — run before major releases). |
 
-### Commit conventions
-
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
-and are validated by a `commit-msg` hook. Prefixes in use: `feat`, `fix`,
-`refactor`, `test`, `docs`, `chore`, `ci`, `perf`, `revert`, `style`,
-`build`, `breaking`.
-
 ### Reporting issues
 
 File issues at https://github.com/VaclavObornik/mongodash/issues. Include
