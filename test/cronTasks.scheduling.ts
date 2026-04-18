@@ -3,6 +3,11 @@ import { Collection } from 'mongodb';
 import * as sinon from 'sinon';
 import { getNewInstance, waitUntil } from './testHelpers';
 
+// A couple of runtime tests use waitUntil with budgets near Jest's default
+// 5s timeout. Raise the suite timeout so a real failure surfaces the
+// waitUntil message instead of a generic Jest timeout.
+jest.setTimeout(15_000);
+
 interface TaskDocument {
     _id: string;
     runSince: Date;
@@ -184,14 +189,14 @@ describe('cronTasks - scheduling semantics', () => {
                 return at;
             });
 
-            const runSinceBefore = await cronTask(taskId, intervalFunction, task).then(() => getDocument(taskId));
+            const docBeforeReschedule = await cronTask(taskId, intervalFunction, task).then(() => getDocument(taskId));
 
             await waitUntil(() => task.callCount >= 1, { timeoutMs: 3000, message: 'task ran at least once' });
             await waitUntil(() => onError.callCount >= 1, { timeoutMs: 3000, message: 'onError fired' });
 
             assert.deepStrictEqual(onError.firstCall.args, [scheduleError]);
             const docAfter = await getDocument(taskId);
-            assert.deepStrictEqual(docAfter.runSince, runSinceBefore.runSince, 'runSince must not move when rescheduling throws');
+            assert.deepStrictEqual(docAfter.runSince, docBeforeReschedule.runSince, 'runSince must not move when rescheduling throws');
         });
 
         it('runs a task whose interval immediately returns a past date without error', async () => {

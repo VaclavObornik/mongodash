@@ -4,6 +4,13 @@ import { Collection } from 'mongodb';
 import * as sinon from 'sinon';
 import { getNewInstance, wait, waitUntil } from './testHelpers';
 
+// This suite uses real-time polling via waitUntil / waitForNextRun with
+// budgets that can equal or slightly exceed Jest's default 5s per-test
+// timeout. Raise the Jest timeout once so a genuine failure surfaces the
+// informative waitUntil/waitForNextRun message rather than a generic
+// Jest timeout.
+jest.setTimeout(15_000);
+
 /**
  * Behavior-level cron task tests.
  *
