@@ -103,6 +103,32 @@ describe('cronTasks - parallel execution', () => {
         instance.mongodash.stopCronTasks();
     });
 
+    it('rapid stop+start does not stall the parallel runner', async () => {
+        await instance.initInstance({ cronTaskConcurrency: 3 });
+        const { cronTask, stopCronTasks, startCronTasks } = instance.mongodash;
+
+        let runs = 0;
+        await cronTask(
+            'stop-start-race',
+            async () => new Date(Date.now() + 50),
+            async () => {
+                runs += 1;
+            },
+        );
+
+        await wait(200);
+        const runsBefore = runs;
+
+        // Stop; restart immediately while the previous stop is still draining.
+        stopCronTasks();
+        startCronTasks();
+
+        // The task should still keep running (the race previously left
+        // runnerStarted=true but no live workers after stop settled).
+        await wait(1500);
+        expect(runs).toBeGreaterThan(runsBefore);
+    }, 15000);
+
     it('does not poll or execute any task after stopCronTasks in parallel mode', async () => {
         await instance.initInstance({ cronTaskConcurrency: 3 });
         const { cronTask, stopCronTasks, getCollection } = instance.mongodash;

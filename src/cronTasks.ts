@@ -148,6 +148,12 @@ const state = {
     // ConcurrentRunner state (used when concurrency > 1).
     runner: <ConcurrentRunner | null>null,
     runnerStarted: false,
+    // Non-null while the runner is in the middle of stopping. ensureStarted
+    // chains on this promise so a rapid stop + start sequence waits for the
+    // previous teardown before firing a new start - otherwise
+    // ConcurrentRunner.start() is a no-op (isRunning still true) and the
+    // scheduler would stall with runnerStarted=true but no live workers.
+    runnerStopPromise: <Promise<void> | null>null,
     concurrency: 1,
 
     _collection: <Collection<TaskDocument> | null>null,
@@ -520,6 +526,27 @@ async function tryRunOneTaskViaRunner(): Promise<void> {
 function ensureStarted(): void {
     if (state.runner) {
         // Parallel path.
+        // If a previous stopCronTasks() is still draining the runner, wait
+        // for it before (re)starting. Without this the inner start() call
+        // would no-op (isRunning still true) and we would end up with
+        // runnerStarted=true but no actual workers.
+        if (state.runnerStopPromise) {
+            const pending = state.runnerStopPromise;
+            pending
+                .then(() => {
+                    if (state.runnerStopPromise === pending) {
+                        state.runnerStopPromise = null;
+                    }
+                    // Re-evaluate: cron may have been stopped again in the
+                    // meantime or runCronTasks may have flipped off.
+                    if (state.runCronTasks || state.enforcedTasks.length > 0) {
+                        ensureStarted();
+                    }
+                })
+                .catch((err) => onError(err as Error));
+            return;
+        }
+
         if (!state.runner.hasSource(CRON_SOURCE_NAME)) {
             state.runner.registerSource(CRON_SOURCE_NAME, {
                 minPollMs: 200,
@@ -563,8 +590,13 @@ export function stopCronTasks(): void {
         state.runnerStarted = false;
         // Fire and forget: the historical API is synchronous (returns void).
         // Any in-flight tasks will finish on their own; further polls will
-        // not happen because runnerStarted is already cleared.
-        state.runner.stop().catch((err) => onError(err as Error));
+        // not happen because runnerStarted is already cleared. Track the
+        // stop promise so ensureStarted can chain on it if the caller
+        // restarts cron before teardown completes - see the race Copilot
+        // flagged on PR #460.
+        state.runnerStopPromise = state.runner.stop().catch((err) => {
+            onError(err as Error);
+        });
     }
 }
 
