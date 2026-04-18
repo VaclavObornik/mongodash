@@ -209,20 +209,28 @@ describe('cronTasks - parallel runner (cronTaskConcurrency > 1)', () => {
         await withInstance(4, async ({ mongodash }) => {
             const trackers = times(3, () => makeTrackedHandler());
 
-            await Promise.all(trackers.map((t) => mongodash.cronTask(nextTaskId(), runOnceIn(50), t.handler)));
-            await waitUntil(() => trackers.every((t) => t.callTimes.length === 1), {
+            // Repeating interval: each task re-schedules itself 50ms after every
+            // run. If stopCronTasks does not actually halt the scheduler, the
+            // post-stop assertion will fire because new runs keep accumulating.
+            // (A one-shot interval would make this test trivially pass.)
+            const repeating = () => new Date(Date.now() + 50);
+            await Promise.all(trackers.map((t) => mongodash.cronTask(nextTaskId(), repeating, t.handler)));
+            await waitUntil(() => trackers.every((t) => t.callTimes.length >= 2), {
                 timeoutMs: 5000,
-                message: 'initial runs completed',
+                message: 'each task fired at least twice (scheduler actively running)',
             });
+            const runsAtStop = trackers.map((t) => t.callTimes.length);
 
-            // Now stop, then wait: there must be no new runs even after enough time
-            // for the scheduler to poll multiple times.
             const result: void = mongodash.stopCronTasks();
             assert.strictEqual(result, undefined, 'stopCronTasks must return void');
-            await wait(400);
 
-            trackers.forEach((t) => {
-                assert.strictEqual(t.callTimes.length, 1, 'no new runs after stopCronTasks');
+            // Wait longer than several re-fire intervals. An in-flight worker may
+            // still add one final run after stopCronTasks (fire-and-forget stop);
+            // more than that indicates stopCronTasks did not actually halt.
+            await wait(500);
+            trackers.forEach((t, i) => {
+                const delta = t.callTimes.length - runsAtStop[i];
+                assert(delta <= 1, `tracker ${i}: ${runsAtStop[i]} -> ${t.callTimes.length} (+${delta}) — scheduler must halt`);
             });
         });
     });
