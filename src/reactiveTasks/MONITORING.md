@@ -31,7 +31,8 @@ Track the core work being done by workers.
 **Source:** Computed by the Leader (on-scrape, fresh). In `cluster`
 mode the Leader also bundles these values into the registry document
 on each push so a scrape that lands on a Follower still returns them
-(bounded staleness: at most one `pushIntervalMs`).
+(bounded staleness: up to `2 x pushIntervalMs`; one missed push is
+tolerated, two in a row stop serving the gauge).
 
 | Metric Name | Type | Labels | Description | Typical Question |
 | :--- | :--- | :--- | :--- | :--- |
@@ -122,7 +123,11 @@ db.globals.updateOne(
 - Focuses on scheduling.
 
 #### `LeaderElector`
-- Used by `MetricsCollector` to check `amILeader()` for `scrapeMode: 'leader'`.
+- Used by `MetricsCollector` to check `isLeader` in both scrape modes:
+  in `local` the leader adds fresh global stats to its own scrape; in
+  `cluster` only the leader's push writes the `globalStats` field, and
+  on scrape only the leader uses the fresh on-the-fly values
+  (followers read what the current leader pushed).
 
 ### Proposed Changes
 

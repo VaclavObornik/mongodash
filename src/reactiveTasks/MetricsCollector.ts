@@ -36,12 +36,13 @@ const STALE_THRESHOLD_MULTIPLIER = 20;
 /**
  * The leader-pushed `globalStats` blob is treated as stale sooner than
  * per-instance local metrics: it reflects a point-in-time DB query
- * (queue depth / lag) and is meaningless if the leader stopped pushing.
- * A tighter bound keeps follower-served gauges close to the stated
- * "bounded by pushIntervalMs" contract while still tolerating a single
- * missed push (e.g. slow DB on the leader).
+ * (queue depth / lag) and is meaningless once the leader stops pushing.
+ * With `2 * pushIntervalMs`, a single missed push (e.g. slow DB on the
+ * leader) still serves the last known value; two missed pushes in a
+ * row stop serving the gauge. Cluster-mode follower gauges are thus
+ * bounded-stale at `GLOBAL_STATS_STALE_MULTIPLIER * pushIntervalMs`.
  */
-const GLOBAL_STATS_STALE_MULTIPLIER = 3;
+const GLOBAL_STATS_STALE_MULTIPLIER = 2;
 
 const DEFAULT_PUSH_INTERVAL = 60000;
 
@@ -78,8 +79,9 @@ const DEFAULT_OPTIONS: Required<Pick<MonitoringOptions, 'enabled' | 'scrapeMode'
  * Global stats (queue depth, lag, change-stream lag, reconciliation timestamp)
  * are computed by the Leader. In `cluster` mode the Leader also pushes these
  * values into the registry document on each push interval so a scrape that
- * lands on a Follower still returns a complete metrics view - bounded by
- * `pushIntervalMs` staleness.
+ * lands on a Follower still returns a complete metrics view - bounded-stale
+ * at `GLOBAL_STATS_STALE_MULTIPLIER * pushIntervalMs` (2x by default,
+ * i.e. a single missed push is tolerated).
  */
 export class MetricsCollector {
     // Configuration

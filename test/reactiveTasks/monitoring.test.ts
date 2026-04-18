@@ -826,7 +826,8 @@ describe('Reactive Task Monitoring', () => {
 
         // Follower should now include Global Stats too: the leader pushes them
         // to the registry doc on each interval, and the follower reads them
-        // there. Freshness is bounded by pushIntervalMs (100 in this test).
+        // there. Freshness is bounded by GLOBAL_STATS_STALE_MULTIPLIER *
+        // pushIntervalMs (2 * 100ms = 200ms in this test).
         expect(find(followerJson, { name: 'reactive_tasks_queue_depth' })).toBeDefined();
         expect(find(followerJson, { name: 'reactive_tasks_global_lag_seconds' })).toBeDefined();
 
