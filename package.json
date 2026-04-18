@@ -1,6 +1,6 @@
 {
     "name": "mongodash",
-    "version": "2.7.0",
+    "version": "2.8.0",
     "type": "commonjs",
     "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
     "main": "./dist/lib/index.js",
@@ -19,7 +19,9 @@
     },
     "typesVersions": {
         "*": {
-            "testing": ["./dist/types/testing/index.d.ts"]
+            "testing": [
+                "./dist/types/testing/index.d.ts"
+            ]
         }
     },
     "files": [
