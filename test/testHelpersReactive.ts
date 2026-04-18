@@ -7,11 +7,15 @@ import { MetricObjectWithValues, MetricValue } from 'prom-client';
  */
 export interface GlobalsRegistryDoc extends Document {
     _id: string;
-    instances: Record<string, any>;
+    instances: Array<{
+        id: string;
+        lastSeen: Date | string;
+        metrics: MetricObjectWithValues<MetricValue<string>>[];
+    }>;
     globalStats?: {
         updatedAt: Date | string;
         leaderId: string;
-        metrics: unknown;
+        metrics: MetricObjectWithValues<MetricValue<string>>[];
     };
 }
 

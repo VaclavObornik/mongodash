@@ -477,8 +477,14 @@ export class MetricsCollector {
         try {
             const threshold = STALE_THRESHOLD_MULTIPLIER * this.options.pushIntervalMs;
 
+            // Re-check leadership immediately before emitting the pipeline
+            // so a transition that happened during `getGlobalStatsAsJson()`
+            // doesn't let a former leader overwrite the shared globalStats
+            // blob after stepping down.
+            const stillLeader = this.leaderElector.isLeader;
+
             // Leader cleans up stale instances; followers only update self
-            const keepCondition = this.leaderElector.isLeader
+            const keepCondition = stillLeader
                 ? { $and: [{ $ne: ['$$inst.id', this.instanceId] }, { $lt: [{ $subtract: ['$$NOW', '$$inst.lastSeen'] }, threshold] }] }
                 : { $ne: ['$$inst.id', this.instanceId] };
 
@@ -494,7 +500,7 @@ export class MetricsCollector {
                     },
                 },
             ];
-            if (globalStats) {
+            if (globalStats && stillLeader) {
                 pipeline.push({
                     $set: {
                         globalStats: { updatedAt: '$$NOW', leaderId: this.instanceId, metrics: globalStats },
