@@ -12,5 +12,8 @@ reports
 dashboard/node_modules
 dashboard/dist
 
+# VitePress build cache - regenerated per docs:dev / docs:build
+docs/.vitepress/cache
+
 # Claude Code worktree scratch space
 .claude/worktrees
