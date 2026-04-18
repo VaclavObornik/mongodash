@@ -1,9 +1,9 @@
-import { MongoClientClosedError, ModifyResult } from 'mongodb';
-import { GlobalsCollection } from '../globalsCollection';
-import { MetaDocument, CODE_REACTIVE_TASK_LEADER_LOCK_LOST, REACTIVE_TASK_META_DOC_ID } from './ReactiveTaskTypes';
 import * as _debug from 'debug';
-import { OnInfo, defaultOnInfo } from '../OnInfo';
-import { OnError, defaultOnError } from '../OnError';
+import { ModifyResult, MongoClientClosedError } from 'mongodb';
+import { GlobalsCollection } from '../globalsCollection';
+import { defaultOnError, OnError } from '../OnError';
+import { defaultOnInfo, OnInfo } from '../OnInfo';
+import { CODE_REACTIVE_TASK_LEADER_LOCK_LOST, MetaDocument, REACTIVE_TASK_META_DOC_ID } from './ReactiveTaskTypes';
 
 const debug = _debug('mongodash:reactiveTasks:leader');
 
@@ -70,8 +70,25 @@ export class LeaderElector {
         }
     }
 
+    /**
+     * Give up leadership locally. The DB lock is NOT released - the next
+     * heartbeat will likely re-acquire it (unless another instance raced
+     * in). onLoseLeader is fired asynchronously so callers (e.g. the
+     * scheduler wiring this to a flush-failure path) get a clean
+     * planner.stop() before the next heartbeat restarts it, rather than
+     * starting a new planner on top of a live one.
+     *
+     * Note: the follow-up onBecomeLeader that fires after a forced loss
+     * looks identical to a real leader election and will increment
+     * reactive_tasks_leader_elections_total; see the event codes
+     * CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR and the flush-failure
+     * counter to disambiguate "real" flapping from restart-driven ones.
+     */
     public forceLoseLeader(): void {
+        if (!this._isLeader) return;
         this._isLeader = false;
+        // Fire-and-forget: we are sync and the caller does not await.
+        this.callbacks.onLoseLeader().catch((err) => this.onError(err as Error));
     }
 
     private async runLeaderElectionLoop(): Promise<void> {
