@@ -8,6 +8,11 @@ import { MetricObjectWithValues, MetricValue } from 'prom-client';
 export interface GlobalsRegistryDoc extends Document {
     _id: string;
     instances: Record<string, any>;
+    globalStats?: {
+        updatedAt: Date | string;
+        leaderId: string;
+        metrics: unknown;
+    };
 }
 
 /**
