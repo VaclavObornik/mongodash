@@ -185,3 +185,55 @@ app.get('/metrics', async (req, res) => {
     res.end(await registry.metrics());
 });
 ```
+
+<br>
+
+## Contributing
+
+### Running the test suite locally
+
+The test suite talks to a real MongoDB — a replica set is required for
+change-stream-backed features (reactive tasks, transactions). The quickest
+way to get one running is Docker:
+
+```bash
+docker run -d --name mongodash-test-mongo -p 27017:27017 \
+    mongo:7 --replSet rs0 --bind_ip_all
+
+# Wait a moment, then initiate the replica set:
+docker exec mongodash-test-mongo mongosh --quiet --eval \
+    "rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]})"
+```
+
+Then run the suite:
+
+```bash
+MONGODB_URI='mongodb://127.0.0.1:27017/mongodashTesting?replicaSet=rs0' \
+    npm test
+```
+
+Override `MONGODB_URI` to point at any replica set you already have.
+
+### Useful scripts
+
+| Command | What it does |
+| :--- | :--- |
+| `npm test` | Full suite: lint, coverage, export checks. |
+| `npm run test:simple` | Jest only (fastest inner loop). |
+| `npm run test:watch` | Jest watch mode with coverage. |
+| `npm run test:lint` | ESLint. |
+| `npm run test:ts` | Type-check both `src/` and `test/`. |
+| `npm run docs:dev` | Run the VitePress docs on `localhost:5173`. |
+| `npm run test:stryker` | Mutation testing (slow — run before major releases). |
+
+### Commit conventions
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+and are validated by a `commit-msg` hook. Prefixes in use: `feat`, `fix`,
+`refactor`, `test`, `docs`, `chore`, `ci`, `perf`, `revert`, `style`,
+`build`, `breaking`.
+
+### Reporting issues
+
+File issues at https://github.com/VaclavObornik/mongodash/issues. Include
+the Node version, MongoDB server version, and a minimal reproduction.

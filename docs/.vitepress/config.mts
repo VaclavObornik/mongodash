@@ -53,7 +53,8 @@ export default defineConfig({
                 text: 'Utilities',
                 items: [
                     { text: 'Process In Batches', link: '/process-in-batches' },
-                    { text: 'Getters', link: '/getters' }
+                    { text: 'Getters', link: '/getters' },
+                    { text: 'Error Handling', link: '/error-handling' }
                 ]
             },
             {

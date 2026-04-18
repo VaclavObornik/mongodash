@@ -135,9 +135,13 @@ import mongodash from 'mongodash';
 mongodash.init({
     // database connection
     uri: 'mongodb://mongodb0.example.com:27017',
-    
+
     // true by default
     runCronTasks: false,
+
+    // Maximum number of cron tasks this instance executes in parallel.
+    // Default 1 (serial). See the "Parallel execution" section above.
+    cronTaskConcurrency: 5,
 
     // valid only if CRON expressions used
     // see https://www.npmjs.com/package/cron-parser for valid options
@@ -170,3 +174,127 @@ The system handles concurrency by locking tasks in MongoDB.
 The system maintains a brief execution history in the database:
 - **Limit**: Only the **last 5 runs** are stored in the `runLog` of the task document.
 - Use this to monitor recent successes or failures.
+
+### Parallel execution within one instance
+
+By default each instance runs one cron task at a time. When you have many
+independent cron tasks and a single long-running one would block the
+others, opt in to parallel execution:
+
+```typescript
+await mongodash.init({
+    // ...
+    cronTaskConcurrency: 5, // up to 5 cron tasks in flight on this instance
+});
+```
+
+- A single task can **never** run twice in parallel, regardless of the
+  value. The per-task `lockedTill` lock guarantees that even within one
+  instance — and across instances — only one execution of a given
+  `taskId` is in flight at a time.
+- `cronTaskConcurrency: 1` (the default) keeps the historical single-loop
+  behaviour.
+- Raising the value only affects *different* tasks running at the same
+  time. Use it when you see head-of-line blocking on the cron collection.
+
+## Monitoring
+
+Cron tasks emit structured events through the `onInfo` callback. Each event
+has a stable `code` that you can route to your logging stack without
+parsing strings.
+
+| Code constant | When it fires | Payload |
+| :--- | :--- | :--- |
+| `CODE_CRON_TASK_STARTED` | Handler is about to be invoked. Also fired once during `init` to announce that cron processing has begun. | `{ taskId, code }` |
+| `CODE_CRON_TASK_FINISHED` | Handler returned without throwing. | `{ taskId, code, duration }` |
+| `CODE_CRON_TASK_FAILED` | Handler threw. The same error is also passed to `onError`. | `{ taskId, code, reason, duration }` |
+| `CODE_CRON_TASK_SCHEDULED` | The task has been scheduled for its next run. | `{ taskId, code, nextRunDate }` |
+
+```typescript
+import { CODE_CRON_TASK_FAILED } from 'mongodash';
+
+await mongodash.init({
+    onInfo: (event) => {
+        if (event.code === CODE_CRON_TASK_FAILED) {
+            metrics.increment('cron.failed', { task: event.taskId });
+        }
+    },
+});
+```
+
+See also [**Error Handling**](./error-handling.md) for how `onError` and
+`onInfo` compose.
+
+## Task Management
+
+### getCronTasksList(query?) => Promise<CronPagedResult\<CronTaskRecord\>>
+
+Inspect the state of registered tasks - useful for admin UIs, health
+checks, or integration tests.
+
+```typescript
+import { getCronTasksList } from 'mongodash';
+
+const page = await getCronTasksList({
+    filter: 'daily', // regex match against taskId (case-insensitive)
+    limit: 20,
+    skip: 0,
+    sort: { field: 'nextRunAt', direction: 1 },
+});
+
+for (const task of page.items) {
+    console.log(task._id, task.status, task.lastRun?.error);
+}
+```
+
+`status` can be `'idle'`, `'running'` (lock held), `'scheduled'`
+(manual trigger pending), or `'failed'` (last run errored).
+
+### getRegisteredCronTaskIds() => string[]
+
+Returns the IDs of tasks registered *on this instance* (useful when
+`runCronTasks: false` on some instances).
+
+## Testing
+
+Cron tasks expose three helpers that are primarily useful in tests. They
+live on the main `mongodash` module alongside the rest of the cron API.
+
+### Run a task synchronously
+
+```typescript
+import { runCronTask } from 'mongodash';
+
+it('processes pending invoices', async () => {
+    await runCronTask('invoice-sweep');
+    const processed = await invoices.countDocuments({ status: 'processed' });
+    expect(processed).toBeGreaterThan(0);
+});
+```
+
+`runCronTask(taskId)` enqueues the task and awaits its completion. It
+throws if called from inside another running cron task — use
+`scheduleCronTaskImmediately` / `triggerCronTask` for the "fire and
+forget" case.
+
+### Disable the scheduler in tests
+
+Running cron jobs in the background of unit tests causes non-determinism.
+Two options:
+
+```typescript
+// Option A: never auto-start. Tests trigger everything explicitly.
+await mongodash.init({ ..., runCronTasks: false });
+
+// Option B: stop after init. Useful for tests that register tasks and
+// then inspect state without running them.
+import { stopCronTasks, startCronTasks } from 'mongodash';
+stopCronTasks();
+// ...
+startCronTasks(); // if a test needs it back
+```
+
+Called before the first `cronTask()` registration, `stopCronTasks()`
+also prevents any task from starting later in the process.
+
+See [**Testing overview**](./testing.md) for cross-subsystem test helpers.
