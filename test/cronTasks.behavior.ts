@@ -379,4 +379,194 @@ describe('cronTasks - behavior', () => {
             assert.strictEqual(handler.callCount, 1);
         });
     });
+
+    describe('runCronTask (explicit on-demand execution)', () => {
+        it('runs the task now and awaits its completion', async () => {
+            const { taskId, handler } = makeTask(() => wait(50));
+            await cronTask(taskId, distantFuture, handler);
+            await wait(100);
+            assert.strictEqual(handler.callCount, 0);
+
+            await mongodash.runCronTask(taskId);
+            assert.strictEqual(handler.callCount, 1);
+
+            await mongodash.runCronTask(taskId);
+            assert.strictEqual(handler.callCount, 2);
+        });
+
+        it('propagates handler errors to the caller', async () => {
+            let shouldThrow = false;
+            const { taskId, handler } = makeTask(() => {
+                if (shouldThrow) throw new Error('some error');
+            });
+            await cronTask(taskId, distantFuture, handler);
+
+            await mongodash.runCronTask(taskId);
+
+            shouldThrow = true;
+            await assert.rejects(() => mongodash.runCronTask(taskId), /some error/);
+            assert.strictEqual(handler.callCount, 2);
+        });
+
+        it('rejects an unknown taskId', async () => {
+            await assert.rejects(() => mongodash.runCronTask('does-not-exist'), /Cannot run unknown task 'does-not-exist'\./);
+        });
+
+        it('rejects being called from inside a running task (use scheduleCronTaskImmediately instead)', async () => {
+            const outer = makeTask();
+            const caller = makeTask(async () => {
+                await mongodash.runCronTask(outer.taskId);
+            });
+
+            await cronTask(outer.taskId, distantFuture, outer.handler);
+            await cronTask(caller.taskId, runOnceIn(), caller.handler);
+            await caller.waitForNextRun();
+            await waitUntil(() => onError.callCount >= 1, { timeoutMs: 2000, message: 'runCronTask-in-task rejected' });
+
+            const thrown = onError.firstCall.args[0] as Error;
+            assert.strictEqual(
+                thrown.message,
+                'It is not possible to call runCronTask inside another running task. Use the scheduleCronTaskImmediately() function instead.',
+            );
+            assert.strictEqual(outer.handler.callCount, 0, 'inner run was prevented');
+        });
+
+        it('works even after stopCronTasks()', async () => {
+            const { taskId, handler } = makeTask();
+            await cronTask(taskId, distantFuture, handler);
+            stopCronTasks();
+
+            await mongodash.runCronTask(taskId);
+
+            assert.strictEqual(handler.callCount, 1);
+        });
+
+        it('rejects if the task document does not exist in the DB', async () => {
+            const { taskId, handler } = makeTask();
+            await cronTask(taskId, distantFuture, handler);
+
+            await collection.deleteOne({ _id: taskId });
+
+            await assert.rejects(() => mongodash.runCronTask(taskId), /The task document not found or is locked right now\./);
+            assert.strictEqual(handler.callCount, 0);
+        });
+
+        it('rejects if the task is currently locked by another instance', async () => {
+            const other = getNewInstance();
+            try {
+                await other.initInstance({}, true);
+                const { taskId, handler } = makeTask(async () => {
+                    // Detach the sync stack so runCronTask's stack-trace-based
+                    // nested-call guard (src/cronTasks.ts:209) does not fire.
+                    // We want the DB-lock error, not the nested-call error.
+                    await wait(0);
+                    await assert.rejects(() => other.mongodash.runCronTask(taskId), /The task document not found or is locked right now\./);
+                });
+
+                await mongodash.cronTask(taskId, distantFuture, handler);
+                await other.mongodash.cronTask(taskId, distantFuture, handler);
+
+                await mongodash.runCronTask(taskId);
+            } finally {
+                await other.cleanUpInstance();
+            }
+        });
+    });
+
+    describe('scheduleCronTaskImmediately', () => {
+        it('wakes the scheduler and runs the task promptly', async () => {
+            const { taskId, handler, waitForNextRun } = makeTask();
+            await cronTask(taskId, distantFuture, handler);
+            await wait(100);
+            assert.strictEqual(handler.callCount, 0);
+
+            await mongodash.scheduleCronTaskImmediately(taskId);
+            await waitForNextRun();
+
+            assert.strictEqual(handler.callCount, 1);
+            assert.strictEqual((await getDocument(taskId)).runImmediately, false, 'flag cleared after execution');
+
+            // does not re-fire
+            await wait(150);
+            assert.strictEqual(handler.callCount, 1);
+        });
+
+        it('flips runImmediately for a task whose DB document was created by another instance', async () => {
+            const owned1 = makeTask();
+            const remote = makeTask();
+            const owned2 = makeTask();
+
+            await cronTask(owned1.taskId, distantFuture, owned1.handler);
+            await cronTask(owned2.taskId, distantFuture, owned2.handler);
+            await collection.insertOne({
+                ...(await getDocument(owned1.taskId)),
+                _id: remote.taskId,
+            });
+
+            await mongodash.scheduleCronTaskImmediately(remote.taskId);
+
+            assert.strictEqual((await getDocument(owned1.taskId)).runImmediately, false);
+            assert.strictEqual((await getDocument(owned2.taskId)).runImmediately, false);
+            assert.strictEqual((await getDocument(remote.taskId)).runImmediately, true);
+        });
+
+        it('rejects when no document exists for the taskId', async () => {
+            const unknownId = nextTaskId();
+            await assert.rejects(() => mongodash.scheduleCronTaskImmediately(unknownId), new RegExp(`No task with id "${unknownId}" is registered\\.`));
+        });
+    });
+
+    describe('onInfo + cronTaskCaller correlation', () => {
+        it('emits lifecycle events and runs each execution inside the configured wrapper', async () => {
+            const instance = getNewInstance();
+            try {
+                const correlator = await import('correlation-id');
+                const dates = times(3, (i) => new Date(Date.now() + 50 + i * 50));
+                const events: { kind: 'info' | 'task'; taskId?: string; code?: string; correlationId?: string }[] = [];
+                const onInfo = sinon.spy((info: { taskId?: string; code?: string }) => {
+                    events.push({ kind: 'info', taskId: info.taskId, code: info.code, correlationId: correlator.getId() });
+                });
+
+                await instance.initInstance({
+                    cronTaskCaller: correlator.withId,
+                    onInfo,
+                });
+
+                const taskId = `corr-${++taskSeq}`;
+                let call = 0;
+                const handler = sinon.spy(async () => {
+                    events.push({ kind: 'task', taskId, correlationId: correlator.getId() });
+                });
+
+                await instance.mongodash.cronTask(taskId, () => (call < dates.length ? dates[call++] : new Date(Date.now() + DISTANT_FUTURE_MS)), handler);
+                await waitUntil(() => handler.callCount >= dates.length, { timeoutMs: 5000, message: 'all scheduled runs completed' });
+                await wait(100); // allow last 'scheduled' event to land
+
+                // Each of the 3 runs must carry a distinct correlation id,
+                // and the handler event for a run shares that id with the
+                // preceding 'started'/'finished'/'scheduled' info events.
+                const taskLifecycleEvents = events.filter((e) => e.taskId === taskId);
+                const runGroups: string[][] = [];
+                let current: string[] = [];
+                taskLifecycleEvents.forEach((e) => {
+                    if (e.code === 'cronTaskStarted') {
+                        if (current.length) runGroups.push(current);
+                        current = [];
+                    }
+                    if (e.correlationId) current.push(e.correlationId);
+                });
+                if (current.length) runGroups.push(current);
+
+                assert.strictEqual(runGroups.length, 3, 'one lifecycle group per run');
+                runGroups.forEach((group, i) => {
+                    const uniqueInGroup = new Set(group);
+                    assert.strictEqual(uniqueInGroup.size, 1, `run ${i} lifecycle share a single correlation id`);
+                });
+                const runIds = runGroups.map((g) => g[0]);
+                assert.strictEqual(new Set(runIds).size, 3, 'correlation ids differ between runs');
+            } finally {
+                await instance.cleanUpInstance();
+            }
+        });
+    });
 });
