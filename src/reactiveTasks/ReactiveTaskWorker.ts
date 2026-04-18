@@ -98,6 +98,12 @@ export class ReactiveTaskWorker {
 
         let isManuallyFinalized = false;
         let lockLost = false;
+        // Set by the outer flow once the continuous-lock is stopped; used by
+        // markCompleted below so we can halt renewal *before* the finalize
+        // write changes nextRunAt. Without this the next CAS renewal would
+        // see its expected value no longer present and falsely report
+        // onLockLost for a completion the same worker performed.
+        let stopLock: () => Promise<void> = async () => {};
 
         const finalizeTaskSuccess = async (duration: number, session?: import('mongodb').ClientSession) => {
             if (lockLost) {
@@ -160,6 +166,12 @@ export class ReactiveTaskWorker {
                 isManuallyFinalized = true;
                 const duration = Date.now() - start;
 
+                // Stop the continuous-lock renewal *before* finalize writes a
+                // new nextRunAt. Otherwise an in-flight renewal CAS would see
+                // its expected value overwritten and report a false
+                // onLockLost for a completion the same worker performed.
+                await stopLock();
+
                 try {
                     await finalizeTaskSuccess(duration, options?.session);
                 } catch (error) {
@@ -169,7 +181,7 @@ export class ReactiveTaskWorker {
             },
         };
 
-        const stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs, {
+        stopLock = createContinuousLock(tasksCollection, taskRecord._id, 'nextRunAt', this.internalOptions.visibilityTimeoutMs, {
             expectedInitialValue: taskRecord.nextRunAt,
             onLockLost: () => {
                 lockLost = true;
