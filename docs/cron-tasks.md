@@ -140,7 +140,8 @@ mongodash.init({
     runCronTasks: false,
 
     // Maximum number of cron tasks this instance executes in parallel.
-    // Default 1 (serial). See the "Parallel execution" section above.
+    // Default 1 (serial). See the "Parallel execution within one instance"
+    // section earlier on this page.
     cronTaskConcurrency: 5,
 
     // valid only if CRON expressions used

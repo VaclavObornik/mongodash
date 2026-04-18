@@ -43,7 +43,9 @@ export function init(options: InitOptions): void {
     state.cronTaskCaller = options.cronTaskCaller;
     state.cronTaskFilter = options.cronTaskFilter;
 
-    const concurrency = Math.max(1, options.cronTaskConcurrency | 0);
+    // Floor to a safe integer rather than bitwise truncation (which wraps at 32 bits).
+    const requested = Number(options.cronTaskConcurrency);
+    const concurrency = Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 1);
     state.concurrency = concurrency;
     if (concurrency > 1) {
         state.runner = new ConcurrentRunner({ concurrency }, (error) => onError(error));
