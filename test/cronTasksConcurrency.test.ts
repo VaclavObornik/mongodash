@@ -98,4 +98,39 @@ describe('cronTasks - parallel execution', () => {
         await instance.initInstance({ cronTaskConcurrency: 2 });
         instance.mongodash.stopCronTasks();
     });
+
+    it('stops polling the DB after stopCronTasks even in parallel mode', async () => {
+        await instance.initInstance({ cronTaskConcurrency: 3 });
+        const { cronTask, stopCronTasks, getCollection } = instance.mongodash;
+
+        let ran = 0;
+        await cronTask(
+            'cron-poll-stopper',
+            async () => new Date(Date.now() + 50),
+            async () => {
+                ran += 1;
+            },
+        );
+
+        // Let the task start at least once.
+        await wait(200);
+        stopCronTasks();
+
+        // Capture the runner's poll count: every findOneAndUpdate on the
+        // cron collection is a poll attempt.
+        const cronCol = getCollection('cronTasks');
+        const before = await cronCol.countDocuments({});
+
+        // Wait a full no-task back-off window (default 5s) to give the
+        // runner a chance to poll again if it hasn't truly stopped.
+        await wait(1500);
+
+        // Runs should not increase (the per-task lock + stopped runner).
+        const runsAfterStop = ran;
+        await wait(500);
+        expect(ran).toBe(runsAfterStop);
+
+        // Sanity: the task document still exists from registration.
+        expect(await cronCol.countDocuments({})).toBe(before);
+    }, 15000);
 });

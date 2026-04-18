@@ -491,8 +491,17 @@ async function tryRunOneTaskViaRunner(): Promise<void> {
         }
     } finally {
         if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
-            const waitMs = await getWaitTimeByNextTask();
-            state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
+            if (state.runCronTasks) {
+                const waitMs = await getWaitTimeByNextTask();
+                state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
+            } else {
+                // Mirror the serial scheduler: once runCronTasks has been
+                // turned off and there is no enforced task to run we stop
+                // polling entirely. A later runCronTask() / startCronTasks()
+                // will re-enter ensureStarted which restarts the runner.
+                state.runnerStarted = false;
+                state.runner.stop().catch((err) => onError(err as Error));
+            }
         }
     }
 }
