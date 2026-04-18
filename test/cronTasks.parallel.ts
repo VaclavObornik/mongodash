@@ -12,8 +12,10 @@ jest.setTimeout(30_000);
 
 /**
  * Parallel-runner behavior tests for the opt-in `cronTaskConcurrency > 1`
- * execution mode. These scenarios are not exercised by cronTasks.behavior.ts
- * (which runs the default concurrency=1 serial loop).
+ * execution mode, plus one deliberate serial-baseline sanity-check that
+ * contrasts the parallel overlap test. These scenarios are not exercised
+ * by cronTasks.behavior.ts (which runs the default concurrency=1 serial
+ * loop through a different public code path).
  */
 interface TaskDocument {
     _id: string;
@@ -23,7 +25,7 @@ interface TaskDocument {
     runLog: { startedAt: Date; finishedAt: Date | null; error: string | null }[];
 }
 
-describe('cronTasks - parallel runner (cronTaskConcurrency > 1)', () => {
+describe('cronTasks - parallel runner + baseline sanity-checks', () => {
     const DISTANT_FUTURE_MS = 24 * 60 * 60 * 1000;
     const distantFuture = () => new Date(Date.now() + DISTANT_FUTURE_MS);
 

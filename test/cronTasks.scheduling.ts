@@ -139,8 +139,10 @@ describe('cronTasks - scheduling semantics', () => {
         it('rejects init() with cronExpressionParserOptions.endDate (not supported)', async () => {
             const instance = getNewInstance();
             try {
+                // skipClean=true: outer suite shares the testing DB, we must
+                // not drop it as a side effect of this rejection test.
                 await assert.rejects(
-                    () => instance.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }),
+                    () => instance.initInstance({ cronExpressionParserOptions: { endDate: new Date('2000-01-01') } }, true),
                     /The 'endDate' parameter of the cron-parser package is not supported yet\./,
                 );
             } finally {
