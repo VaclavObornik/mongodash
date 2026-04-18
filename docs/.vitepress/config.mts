@@ -59,7 +59,8 @@ export default defineConfig({
             {
                 text: 'Testing',
                 items: [
-                    { text: 'Testing Utilities', link: '/testing' }
+                    { text: 'Overview', link: '/testing' },
+                    { text: 'Testing Reactive Tasks', link: '/reactive-tasks/testing' }
                 ]
             }
         ],
