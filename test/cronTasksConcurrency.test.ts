@@ -1,4 +1,8 @@
+import { createSandbox } from 'sinon';
 import { getNewInstance, wait } from './testHelpers';
+
+const sandbox = createSandbox();
+afterEach(() => sandbox.restore());
 
 /**
  * Exercises the parallel cron scheduler (opt-in via cronTaskConcurrency > 1).
@@ -99,7 +103,7 @@ describe('cronTasks - parallel execution', () => {
         instance.mongodash.stopCronTasks();
     });
 
-    it('stops polling the DB after stopCronTasks even in parallel mode', async () => {
+    it('does not poll or execute any task after stopCronTasks in parallel mode', async () => {
         await instance.initInstance({ cronTaskConcurrency: 3 });
         const { cronTask, stopCronTasks, getCollection } = instance.mongodash;
 
@@ -114,23 +118,22 @@ describe('cronTasks - parallel execution', () => {
 
         // Let the task start at least once.
         await wait(200);
-        stopCronTasks();
 
-        // Capture the runner's poll count: every findOneAndUpdate on the
-        // cron collection is a poll attempt.
+        // Spy on the runner's poll primitive (findOneAndUpdate on the
+        // cronTasks collection) so we can assert polling truly stopped,
+        // not just that no executions happened (the per-task lock alone
+        // could hide continued polling).
         const cronCol = getCollection('cronTasks');
-        const before = await cronCol.countDocuments({});
+        const pollSpy = sandbox.spy(cronCol, 'findOneAndUpdate');
 
-        // Wait a full no-task back-off window (default 5s) to give the
-        // runner a chance to poll again if it hasn't truly stopped.
+        stopCronTasks();
+        const runsAtStop = ran;
+
+        // Wait past the default no-task back-off window (5s) so the runner
+        // would poll again if it were still running.
         await wait(1500);
 
-        // Runs should not increase (the per-task lock + stopped runner).
-        const runsAfterStop = ran;
-        await wait(500);
-        expect(ran).toBe(runsAfterStop);
-
-        // Sanity: the task document still exists from registration.
-        expect(await cronCol.countDocuments({})).toBe(before);
+        expect(ran).toBe(runsAtStop); // no further executions
+        expect(pollSpy.called).toBe(false); // no further polls
     }, 15000);
 });

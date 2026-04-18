@@ -167,8 +167,10 @@ describe('Reactive Task Transactions', () => {
                 try {
                     await markCompleted(); // idempotent: must not throw
                 } catch (err) {
+                    // Record the failure but do not rethrow - otherwise the
+                    // task ends up 'failed' and the waitUntil below times
+                    // out obscuring the real assertion.
                     secondMarkCompletedThrew = err as Error;
-                    throw err;
                 }
                 handlerCompletions += 1;
             },
@@ -177,13 +179,13 @@ describe('Reactive Task Transactions', () => {
         await instance.mongodash.startReactiveTasks();
 
         const tasksCollection = instance.mongodash.getCollection(`${SOURCE_COLLECTION}_tasks`);
-        // Wait for the specific task record to reach 'completed'. Tolerant of
-        // slow combinations (e.g. MongoDB 6 + driver 8 on CI) where a fixed
-        // wait(1000) races with leader election + reconciliation + debounce.
+        // Wait for the task to settle on either 'completed' or 'failed' -
+        // stopping early on 'failed' surfaces regressions with a clear
+        // assertion instead of a 15s timeout.
         await waitUntil(
             async () => {
                 const doc = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
-                return doc?.status === 'completed';
+                return doc?.status === 'completed' || doc?.status === 'failed';
             },
             { timeoutMs: 15000, pollIntervalMs: 100 },
         );
