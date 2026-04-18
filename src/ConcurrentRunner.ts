@@ -1,5 +1,11 @@
 import { defaultOnError, OnError } from './OnError';
 
+// Note: this file uses require() for the `debug` import on purpose - the
+// rest of the codebase uses `import * as _debug from 'debug'`, but this
+// module is transitively pulled into the dashboard's vue-tsc build (via
+// task-management/types.ts -> cronTasks.ts -> ConcurrentRunner.ts), and
+// vue-tsc runs in stricter ESM mode where the namespace-style import is
+// not callable. require() sidesteps that while keeping runtime identical.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const debug = require('debug')('mongodash:ConcurrentRunner') as (...args: unknown[]) => void;
 
