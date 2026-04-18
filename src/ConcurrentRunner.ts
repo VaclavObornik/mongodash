@@ -86,6 +86,25 @@ export class ConcurrentRunner {
         }
     }
 
+    /**
+     * Override the back-off schedule: the next poll for `sourceName` will
+     * happen at exactly `runAt` (clamped to [minPollMs, maxPollMs] from now
+     * only in that the sleep loop still sleeps in chunks of at most the
+     * upcoming nextRunAt). Callers that already know when their next unit
+     * of work is due (e.g. a cron task scheduled 1 hour away) can use this
+     * to avoid wasted polls.
+     *
+     * Back-off is reset so a subsequent event is picked up at minPollMs.
+     */
+    public setNextRunAt(sourceName: string, runAt: number): void {
+        const state = this.sources.get(sourceName);
+        if (!state) return;
+        state.currentBackoff = state.options.minPollMs;
+        state.nextRunAt = runAt;
+        // Wake workers so any currently-sleeping one can recompute its wait.
+        this.wakeUpAllWorkers();
+    }
+
     public updateAllSources(options: Partial<SourceOptions>): void {
         for (const state of this.sources.values()) {
             state.options = { ...state.options, ...options };
