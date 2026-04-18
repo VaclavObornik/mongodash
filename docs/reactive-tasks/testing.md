@@ -64,9 +64,10 @@ await waitUntilReactiveTasksIdle({
 ### Isolation with `whitelist`
 
 When running tests in parallel against a shared database, use `whitelist` to
-wait only for tasks that belong to this test. In whitelist mode the global
-planner / worker checks are **skipped** so another test's background work does
-not block you.
+wait only for tasks that belong to this test. In whitelist mode the **active
+workers** check is skipped so another test's worker pool does not block you;
+the planner buffer check is still applied (otherwise we could return idle
+before a change event we care about has even been turned into a task row).
 
 ```typescript
 await waitUntilReactiveTasksIdle({
@@ -76,6 +77,14 @@ await waitUntilReactiveTasksIdle({
     ],
 });
 ```
+
+> [!NOTE]
+> The idle check queries task records by `sourceDocId`. If your trigger is
+> very fast (e.g. a write immediately followed by `waitUntilReactiveTasksIdle`)
+> and the default `stabilityDurationMs` is low, you may need to raise
+> `stabilityDurationMs` to ensure the planner has had a chance to flush the
+> event into a task record. Alternatively, poll with `waitUntil` for the
+> task record to exist first, then call `waitUntilReactiveTasksIdle`.
 
 ## `assertNoReactiveTaskErrors`
 

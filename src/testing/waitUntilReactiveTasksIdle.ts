@@ -46,16 +46,17 @@ export async function waitUntilReactiveTasksIdle(customOptions: WaitUntilReactiv
         const registry = _scheduler.getRegistry();
 
         // --- 1. Global Checks ---
-        // Skipped in whitelist mode so that unrelated background work (other
-        // tests' planner events / worker tasks) does not block a scoped wait.
+        // The planner buffer check is kept in whitelist mode too: change-stream
+        // events for *our* collections land there before task records exist,
+        // and skipping the check altogether would let us return idle before
+        // the events have been turned into rows the DB check below can see.
+        // The worker check is only applied globally - in whitelist mode
+        // other tests' workers must not block us.
+        if (planner && !planner.isEmpty) {
+            debug('Planner not empty');
+            return false;
+        }
         if (!hasWhitelist) {
-            // 1. Check Internal Buffers (Planner)
-            if (planner && !planner.isEmpty) {
-                debug('Planner not empty');
-                return false;
-            }
-
-            // 2. Check Active Workers (Runner)
             if (runner && runner.activeWorkers > 0) {
                 debug(`Active workers: ${runner.activeWorkers}`);
                 return false;
