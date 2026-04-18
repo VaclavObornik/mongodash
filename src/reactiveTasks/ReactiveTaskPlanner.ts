@@ -40,12 +40,15 @@ type FilteredChangeStreamDocument = Pick<
 export interface PlannerCallbacks {
     onStreamError: () => void;
     onTaskPlanned: (tasksCollectionName: string, debounceMs: number) => void;
-    /**
-     * Fired when a batch of change-stream events could not be planned into the
-     * task collections. Optional - when omitted, the outer stream-restart path
-     * (via `onStreamError`) is the only recovery signal.
-     */
+    /** Fired when a batch flush fails. Records the metric and should trigger a planner restart. */
     onFlushFailure?: () => void;
+    /**
+     * Fired when the planner needs to restart due to a flush failure (distinct from a
+     * real change-stream error). Callers should trigger a leader-election cycle here
+     * instead of reacting to `onStreamError`, so flush failures don't pollute the
+     * stream-error metric.
+     */
+    onRequestRestart?: () => void;
 }
 
 /**
@@ -207,6 +210,8 @@ export class ReactiveTaskPlanner {
 
             const stream = dbToWatch.watch(pipeline, streamOptions);
             this.changeStream = stream;
+            // Stream started successfully — safe to advance resume tokens again.
+            this.lastFlushFailed = false;
 
             stream.on('change', (change: FilteredChangeStreamDocument) => {
                 this.enqueueTaskChange(change);
@@ -356,21 +361,23 @@ export class ReactiveTaskPlanner {
             await this.processDeletions(deletedIdsByTask);
             await this.executeUpsertOperations(idsByCollection);
 
-            if (lastToken) {
+            // Do not advance the token past events that could not be planned in a
+            // previous batch.  lastFlushFailed is cleared only when the stream restarts
+            // (startChangeStream), so it stays true across any subsequent successful
+            // flushes that run before the restart completes.
+            if (lastToken && !this.lastFlushFailed) {
                 await this.saveResumeToken(lastToken, lastClusterTime);
             }
-            this.lastFlushFailed = false;
         } catch (error) {
             this.onError(error as Error);
-            // Mark as failed so heartbeat does not advance the resume token
-            // past events we could not plan.
+            // Mark as failed so heartbeat and future flushes do not advance the
+            // resume token past events we could not plan.  The flag is cleared only
+            // when the change stream is restarted (startChangeStream).
             this.lastFlushFailed = true;
             this.callbacks.onFlushFailure?.();
-            // Trigger a stream restart so the planner resumes from the last
-            // successfully-saved token and reconciliation runs. Without this
-            // a later successful flush would save a newer token and bury the
-            // failed events forever.
-            this.callbacks.onStreamError();
+            // Use onRequestRestart (not onStreamError) so flush failures don't
+            // pollute the stream-error metric.
+            this.callbacks.onRequestRestart?.();
         } finally {
             this.isFlushing = false;
             this.batchFirstEventTime = null;
@@ -456,15 +463,14 @@ export class ReactiveTaskPlanner {
         const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
         if (failures.length === 0) return;
 
-        // Report each failure individually so observers see all errors.
-        for (const f of failures) {
-            this.onError(f.reason as Error);
-        }
-
-        // Rethrow so flushTaskBatch can mark the batch as failed and avoid
-        // advancing the resume token past events we could not plan.
-        const firstMsg = failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
-        throw new Error(`${context}: ${failures.length} of ${results.length} operation(s) failed. First error: ${firstMsg}`);
+        // Build a single aggregated error so the caller (flushTaskBatch) reports it once.
+        // Calling onError here for each failure would duplicate the report since flushTaskBatch
+        // also calls onError on the thrown error.
+        const messages = failures.map((f, i) => {
+            const msg = f.reason instanceof Error ? f.reason.message : String(f.reason);
+            return `[${i + 1}] ${msg}`;
+        });
+        throw new Error(`${context}: ${failures.length} of ${results.length} operation(s) failed. Errors: ${messages.join('; ')}`);
     }
 
     private async handleStreamError(error: MongoError): Promise<void> {

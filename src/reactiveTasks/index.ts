@@ -258,11 +258,6 @@ export class ReactiveTaskScheduler {
                         code: CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
                     });
                     this.metricsCollector?.recordStreamError();
-                    // If stream fails, we should probably force lose leader to let someone else try,
-                    // or just restart if we are still leader.
-                    // LeaderElector handles its own loop.
-                    // If stream fails, Planner stops.
-                    // We can ask LeaderElector to give up leadership.
                     this.leaderElector?.forceLoseLeader();
                 },
                 onTaskPlanned: (tasksCollectionName, debounceMs) => {
@@ -272,6 +267,9 @@ export class ReactiveTaskScheduler {
                 },
                 onFlushFailure: () => {
                     this.metricsCollector?.recordFlushFailure();
+                },
+                onRequestRestart: () => {
+                    this.leaderElector?.forceLoseLeader();
                 },
             },
             {
