@@ -15,7 +15,8 @@ The monitoring behavior can be customized via the `monitoring` options object pa
 | `enabled` | boolean | `true` | Enable/disable metrics collection. |
 | `pushIntervalMs` | number | `60000` (1m) | How often workers push local metrics to the global registry. |
 | `registry` | `prom-client.Registry` | `undefined` | Optional custom Prometheus registry instance. |
-| `scrapeMode` | `'cluster' \| 'local'` | `'cluster'` | Controls which instances return metrics when scraped. <br> **'cluster'**: All instances return full aggregated metrics. Use when scraping via Load Balancer (Heroku). <br> **'local'**: Returns local metrics for THIS instance. Leader also includes Global Stats. |
+| `scrapeMode` | `'cluster' \| 'local'` | `'cluster'` | Controls which instances return metrics when scraped. <br> **'cluster'**: All instances return full aggregated metrics incl. global stats. Use when scraping via Load Balancer (Heroku). <br> **'local'**: Returns local metrics for THIS instance. Leader also includes Global Stats. |
+| `readPreference` | `ReadPreference` | `'secondaryPreferred'` | Read preference for DB queries that compute global stats and fetch the registry doc. |
 
 ### Task Execution Metrics
 Track the core work being done by workers.
@@ -27,7 +28,10 @@ Track the core work being done by workers.
 | `reactive_tasks_retries_total` | Counter | `task_name` | Total number of retries attempted. | "Is a specific task failing frequently?" |
 
 ### Queue & Scheduler Metrics
-**Source:** Computed on-demand via DB Query during scrape.
+**Source:** Computed by the Leader (on-scrape, fresh). In `cluster`
+mode the Leader also bundles these values into the registry document
+on each push so a scrape that lands on a Follower still returns them
+(bounded staleness: at most one `pushIntervalMs`).
 
 | Metric Name | Type | Labels | Description | Typical Question |
 | :--- | :--- | :--- | :--- | :--- |
@@ -35,7 +39,8 @@ Track the core work being done by workers.
 | `reactive_tasks_global_lag_seconds` | Gauge | `task_name` | Age of oldest pending task (`Now - ScheduledAt`). | "Is the system stalling?" |
 
 ### System & Infrastructure Metrics
-**Source:** Computed on-demand via DB Query during scrape.
+**Source:** Same as Queue & Scheduler Metrics - fresh on the Leader,
+bounded-stale on Followers via the registry doc push.
 
 | Metric Name | Type | Labels | Description | Typical Question |
 | :--- | :--- | :--- | :--- | :--- |
@@ -47,8 +52,15 @@ Track the core work being done by workers.
 ## 2. Implementation Plan (Distributed)
 
 We use a **Hybrid Metrics Pattern**:
-1.  **Worker Stats**: Pushed by workers to a central Registry Document, aggregated on read.
-2.  **Global Stats**: Queried directly from DB on read.
+1.  **Worker Stats**: Pushed by every instance to a central Registry Document, aggregated on read.
+2.  **Global Stats**:
+    - On the Leader: queried directly from DB on read (fresh values).
+    - Also periodically pushed to a dedicated `globalStats` field on the
+      same Registry Document, so a Follower served scrape in `cluster`
+      mode can return a complete metrics view without doing the DB work
+      itself. The field is a singleton (one writer at a time - the
+      current Leader), preventing double-counting across leader
+      transitions.
 
 > [!NOTE]
 > `prom-client` will be an **optional peerDependency**.
@@ -58,21 +70,32 @@ We use a **Hybrid Metrics Pattern**:
 We expose a method `getPrometheusMetrics()` that decides whether to return metrics based on `scrapeMode`.
 
 #### `scrapeMode` Logic
-- **`'any'` (Single Instance Reporting)**:
+- **`'cluster'` (default)**:
     - Useful for Heroku / Load Balanced setups.
-    - **Any instance** that receives the request will fetch the Registry and query Global Stats, returning the full set.
-- **`'leader'` (Multi Instance Reporting)**:
+    - **Any instance** that receives the request returns the full set:
+      per-instance stats merged from the Registry Document + global
+      stats (fresh on the Leader, last-pushed on Followers).
+- **`'local'`**:
     - Useful for K8s / Service Discovery where Prometheus scrapes *everyone*.
-    - **Only the Leader** performs the aggregation and DB queries. Non-leaders return empty/null (or just app-level node metrics if configured elsewhere).
-    - Prevents double-counting of the aggregated Registry data.
+    - Each instance returns only its own per-instance stats. The Leader
+      additionally includes the fresh Global Stats, so those are
+      reported exactly once in the cluster.
+    - No double-counting - followers only ever emit their own locals.
 
 #### `MetricsCollector`
-- **Push Loop**: Periodically pushes *local* worker stats (`duration`, `retries`) to `reactive_tasks_metrics_registry`.
-- **Scrape Handler**:
-    1. Check `scrapeMode` & Leadership.
-    2. **Fetch Registry**: Read `reactive_tasks_metrics_registry`, prune stale instances in-memory, sum up worker stats.
-    3. **Query DB**: Run `queue_depth` aggregation and `lag` queries.
-    4. **Combine**: Update the Prometheus Registry and return string.
+- **Push Loop** (every `pushIntervalMs`):
+    - Every instance pushes its own local registry metrics into the
+      `instances[]` array of `reactive_tasks_metrics_registry`.
+    - The Leader additionally pushes fresh global stats into the
+      `globalStats` field of the same document.
+- **Scrape Handler** (cluster mode):
+    1. Read `reactive_tasks_metrics_registry` once; prune stale
+       instances in-memory (sum up worker stats).
+    2. Include this instance's own fresh local metrics.
+    3. Include global stats: the Leader runs the DB queries on the
+       spot for freshest values; Followers fall back to the
+       `globalStats` field from step 1 (pruned if stale).
+    4. Aggregate everything via `AggregatorRegistry.aggregate`.
 
 ### Pruning Strategy
 - Stale instances in `reactive_tasks_metrics_registry` are filtered out **during the scrape aggregation** (`lastSeen < Now - threshold`).
