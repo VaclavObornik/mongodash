@@ -11,6 +11,10 @@ import { Document, ObjectId } from 'mongodb';
  *
  * THROWS error on unsupported operators (like $elemMatch, $all, $xyz) to avoid silent failures.
  */
+export interface UnsupportedFieldOperatorError extends Error {
+    isUnsupportedFieldOperator?: boolean;
+}
+
 export function queryToExpression(query: Document): Document {
     if (!query || Object.keys(query).length === 0) {
         return {};
@@ -55,6 +59,18 @@ export function queryToExpression(query: Document): Document {
     return { $and: conditions };
 }
 
+/**
+ * $regexMatch errors when its `input` is not a string. Guard so a document
+ * whose field is missing or non-string degrades to "no match" rather than
+ * throwing server-side and killing the reconciliation / change-stream
+ * pipeline for every scanned document.
+ */
+function regexMatchGuarded(rawFieldPath: string, regex: string, options: string): Document {
+    return {
+        $cond: [{ $eq: [{ $type: rawFieldPath }, 'string'] }, { $regexMatch: { input: rawFieldPath, regex, options } }, false],
+    };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseFieldCondition(field: string, value: any): Document | null {
     const rawFieldPath = `$${field}`;
@@ -72,7 +88,7 @@ function parseFieldCondition(field: string, value: any): Document | null {
         (value as any)._bsontype === 'ObjectId' // Handling different ObjectId implementations
     ) {
         if (value instanceof RegExp) {
-            return { $regexMatch: { input: rawFieldPath, regex: value.source, options: value.flags } };
+            return regexMatchGuarded(rawFieldPath, value.source, value.flags);
         }
         return { $eq: [ifNullFieldPath, value] };
     }
@@ -124,7 +140,7 @@ function parseFieldCondition(field: string, value: any): Document | null {
                     // { name: { $regex: 'val', $options: 'i' } }
 
                     const options = value['$options'] || '';
-                    fieldConditions.push({ $regexMatch: { input: rawFieldPath, regex: opVal, options } });
+                    fieldConditions.push(regexMatchGuarded(rawFieldPath, opVal, options));
                     break;
                 case '$options':
                     // Handled in $regex
@@ -133,13 +149,23 @@ function parseFieldCondition(field: string, value: any): Document | null {
                     fieldConditions.push({ $eq: [{ $type: rawFieldPath }, opVal] });
                     break;
                 case '$size':
-                    fieldConditions.push({ $eq: [{ $size: rawFieldPath }, opVal] });
+                    // $size errors on a non-array value in the aggregation
+                    // framework. Guard so a document whose field is missing or
+                    // not an array degrades to "no match" instead of aborting
+                    // the whole reconciliation / change-stream pipeline.
+                    fieldConditions.push({ $cond: [{ $isArray: rawFieldPath }, { $eq: [{ $size: rawFieldPath }, opVal] }, false] });
                     break;
 
-                default:
-                    throw new Error(
+                default: {
+                    // Tag field-level failures so normalizeTaskFilter can tell a
+                    // genuine query misuse (must fail fast) apart from an
+                    // aggregation expression it merely could not convert.
+                    const err = new Error(
                         `ReactiveTasks: Operator '${op}' on field '${field}' is not supported in simple filter conversion. Use Aggregation syntax.`,
-                    );
+                    ) as UnsupportedFieldOperatorError;
+                    err.isUnsupportedFieldOperator = true;
+                    throw err;
+                }
             }
         }
 

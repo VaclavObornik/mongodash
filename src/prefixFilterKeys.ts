@@ -40,11 +40,27 @@ export function prefixFilterKeys<T extends Document>(filter: Filter<T>, prefix: 
     return newFilter;
 }
 
+/**
+ * A plain object is one built from an object literal / `Object` - i.e. a
+ * container of expression sub-parts we must recurse into. BSON values
+ * (Date, ObjectId, Long, Decimal128, Binary, Timestamp, RegExp, ...) are
+ * NOT plain objects; rebuilding them key-by-key corrupts them (a Date has
+ * no enumerable keys and collapses to `{}`), so they must be treated as
+ * opaque leaves and passed through unchanged.
+ */
+function isPlainObject(value: unknown): boolean {
+    if (value === null || typeof value !== 'object') {
+        return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function prefixExpr(expr: any, prefix: string): any {
     if (Array.isArray(expr)) {
         return expr.map((item) => prefixExpr(item, prefix));
-    } else if (typeof expr === 'object' && expr !== null) {
+    } else if (isPlainObject(expr)) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const newExpr: any = {};
         for (const key in expr) {
@@ -57,5 +73,6 @@ function prefixExpr(expr: any, prefix: string): any {
             return `$${prefix}.${expr.substring(1)}`;
         }
     }
+    // Primitives and non-plain objects (Date/ObjectId/other BSON) pass through.
     return expr;
 }

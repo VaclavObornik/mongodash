@@ -22,10 +22,13 @@ describe('queryToExpression', () => {
         expect(queryToExpression({ _id: id })).toEqual({ $eq: [{ $ifNull: ['$_id', null] }, id] });
     });
 
-    it('should handle Regex equality (no $ifNull on input)', () => {
+    it('should handle Regex equality guarded by a string-type check', () => {
+        // $regexMatch throws server-side when `input` is not a string, which
+        // would abort the whole reconciliation / change-stream pipeline. The
+        // $cond guard makes a non-string / missing field degrade to no-match.
         const regex = /test/i;
         expect(queryToExpression({ name: regex })).toEqual({
-            $regexMatch: { input: '$name', regex: 'test', options: 'i' },
+            $cond: [{ $eq: [{ $type: '$name' }, 'string'] }, { $regexMatch: { input: '$name', regex: 'test', options: 'i' } }, false],
         });
     });
 
@@ -62,13 +65,13 @@ describe('queryToExpression', () => {
         });
     });
 
-    it('should handle $regex operator (no $ifNull on input)', () => {
+    it('should handle $regex operator guarded by a string-type check', () => {
         expect(queryToExpression({ name: { $regex: 'pat' } })).toEqual({
-            $regexMatch: { input: '$name', regex: 'pat', options: '' },
+            $cond: [{ $eq: [{ $type: '$name' }, 'string'] }, { $regexMatch: { input: '$name', regex: 'pat', options: '' } }, false],
         });
 
         expect(queryToExpression({ name: { $regex: 'pat', $options: 'i' } })).toEqual({
-            $regexMatch: { input: '$name', regex: 'pat', options: 'i' },
+            $cond: [{ $eq: [{ $type: '$name' }, 'string'] }, { $regexMatch: { input: '$name', regex: 'pat', options: 'i' } }, false],
         });
     });
 
@@ -78,9 +81,9 @@ describe('queryToExpression', () => {
         });
     });
 
-    it('should handle $size (no $ifNull on size check)', () => {
+    it('should handle $size guarded by an array-type check', () => {
         expect(queryToExpression({ arr: { $size: 3 } })).toEqual({
-            $eq: [{ $size: '$arr' }, 3],
+            $cond: [{ $isArray: '$arr' }, { $eq: [{ $size: '$arr' }, 3] }, false],
         });
     });
 

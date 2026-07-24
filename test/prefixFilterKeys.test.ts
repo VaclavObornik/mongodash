@@ -1,6 +1,30 @@
+import { ObjectId } from 'mongodb';
 import { prefixFilterKeys } from '../src/prefixFilterKeys';
 
 describe('prefixFilterKeys', () => {
+    // Regression: prefixExpr used to rebuild ANY typeof==='object' value
+    // key-by-key, which collapsed a Date to {} and an ObjectId to { buffer: ... },
+    // so a change-stream $expr comparing against a Date/ObjectId filter value
+    // matched nothing and new matching documents were silently never planned.
+    describe('BSON value preservation inside $expr (regression)', () => {
+        it('should preserve a Date filter value unchanged', () => {
+            const date = new Date('2020-01-02T03:04:05.000Z');
+            const result = prefixFilterKeys({ $expr: { $eq: ['$createdAt', date] } }, 'fullDocument') as { $expr: { $eq: [string, Date] } };
+            expect(result.$expr.$eq[0]).toBe('$fullDocument.createdAt');
+            expect(result.$expr.$eq[1]).toBeInstanceOf(Date);
+            expect((result.$expr.$eq[1] as Date).getTime()).toBe(date.getTime());
+        });
+
+        it('should preserve an ObjectId filter value unchanged (including inside $in)', () => {
+            const a = new ObjectId();
+            const b = new ObjectId();
+            const result = prefixFilterKeys({ $expr: { $in: ['$tenantId', [a, b]] } }, 'fullDocument') as { $expr: { $in: [string, ObjectId[]] } };
+            expect(result.$expr.$in[0]).toBe('$fullDocument.tenantId');
+            expect(result.$expr.$in[1][0]).toBeInstanceOf(ObjectId);
+            expect(result.$expr.$in[1][0].equals(a)).toBe(true);
+            expect(result.$expr.$in[1][1].equals(b)).toBe(true);
+        });
+    });
     describe('basic field prefixing', () => {
         it('should prefix simple field names', () => {
             const filter = { name: 'John', age: 30 };
