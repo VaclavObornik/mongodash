@@ -314,7 +314,11 @@ export class ReactiveTaskManager {
             if (query.hasError) {
                 mongoQuery.lastError = { $exists: true, $ne: null };
             } else {
-                mongoQuery.lastError = { $exists: false };
+                // finalizeTask writes `lastError: null` on success, so completed
+                // tasks HAVE the field. `{ $exists: false }` matched only
+                // never-run tasks and hid every healthy completed task; `null`
+                // matches both missing and explicit-null.
+                mongoQuery.lastError = null;
             }
         }
 

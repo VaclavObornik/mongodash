@@ -1,6 +1,7 @@
 import * as _debug from 'debug';
 import { Document } from 'mongodb';
 import { GlobalsCollection } from '../globalsCollection';
+import { defaultOnError, OnError } from '../OnError';
 import { OnInfo } from '../OnInfo';
 import { processInBatches } from '../processInBatches';
 import { withLock } from '../withLock';
@@ -31,6 +32,7 @@ export class ReactiveTaskReconciler {
         private ops: ReactiveTaskOps,
         private onInfo: OnInfo,
         private internalOptions: { batchSize: number; batchIntervalMs: number; minBatchIntervalMs: number; getNextCleanupDate: (date?: Date) => Date },
+        private onError: OnError = defaultOnError,
     ) {}
 
     private nextCleanupTime: number | null = null;
@@ -172,7 +174,12 @@ export class ReactiveTaskReconciler {
                 await this.globalsCollection.updateOne({ _id: REACTIVE_TASK_META_DOC_ID }, update, { upsert: true });
             } catch (error) {
                 debug(`[Scheduler ${this.instanceId}] Error reconciling collection: ${entry.tasksCollection.collectionName}`, error);
-                // Continue with other collections
+                // Surface the failure. Reconciliation is the recovery mechanism
+                // after oplog loss (code 280); a silently-swallowed error means
+                // missed tasks with zero operator visibility. The task is left
+                // un-reconciled so a later planner restart retries it. We still
+                // continue with the other collections.
+                this.onError(error as Error);
             }
         }
 

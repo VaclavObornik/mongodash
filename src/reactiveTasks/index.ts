@@ -95,6 +95,11 @@ export class ReactiveTaskScheduler {
     // Internal state
     private isRunning = false;
 
+    // Outstanding debounce timers scheduled by onTaskPlanned. Tracked so stop()
+    // can clear them; unref'd so a large debounce cannot keep the process alive
+    // after a graceful shutdown.
+    private plannedSpeedUpTimers = new Set<NodeJS.Timeout>();
+
     private concurrentRunner: ConcurrentRunner | undefined;
     private leaderElector: LeaderElector | undefined;
     private taskPlanner: ReactiveTaskPlanner | undefined;
@@ -269,9 +274,14 @@ export class ReactiveTaskScheduler {
                     this.leaderElector?.forceLoseLeader();
                 },
                 onTaskPlanned: (tasksCollectionName, debounceMs) => {
-                    setTimeout(() => {
+                    const timer = setTimeout(() => {
+                        this.plannedSpeedUpTimers.delete(timer);
                         this.concurrentRunner?.speedUp(tasksCollectionName);
                     }, debounceMs);
+                    if (typeof timer.unref === 'function') {
+                        timer.unref();
+                    }
+                    this.plannedSpeedUpTimers.add(timer);
                 },
                 onFlushFailure: () => {
                     this.metricsCollector?.recordFlushFailure();
@@ -366,6 +376,13 @@ export class ReactiveTaskScheduler {
         }
         debug(`[Scheduler ${this.instanceId}] Stopping...`);
         this.isRunning = false;
+
+        // Clear any outstanding debounce timers so they neither fire against a
+        // stopped runner nor keep the event loop alive.
+        for (const timer of this.plannedSpeedUpTimers) {
+            clearTimeout(timer);
+        }
+        this.plannedSpeedUpTimers.clear();
 
         await Promise.all([this.leaderElector?.stop(), this.taskPlanner?.stop(), this.concurrentRunner!.stop(), this.metricsCollector?.stop()]);
 

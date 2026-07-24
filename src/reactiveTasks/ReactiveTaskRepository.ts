@@ -32,7 +32,37 @@ export class ReactiveTaskRepository<T extends Document> {
         private onInfo: OnInfo = defaultOnInfo,
         private onError: OnError = defaultOnError,
     ) {
-        this.initPromise = this.ensureIndexes();
+        this.initPromise = this.init();
+    }
+
+    private async init(): Promise<void> {
+        await this.ensureIndexes();
+        await this.migrateLegacyScheduledFields();
+    }
+
+    /**
+     * Backward compatibility: versions before 2.3.1 stored the poll time in
+     * `scheduledAt` (and the baseline in `initialScheduledAt`); these were
+     * renamed to `nextRunAt` / `dueAt`. Records written by those versions have
+     * no `nextRunAt`, so the polling query (`nextRunAt: { $type: 'date' }`) and
+     * its partial index never see them and their tasks would silently never run
+     * again. This one-time, idempotent rename heals such records on startup.
+     * Best-effort: a transient failure is reported but must not block task
+     * registration (the awaited initPromise). Runs once per process; matches
+     * nothing (a cheap no-op) on databases that never used the legacy fields.
+     */
+    private async migrateLegacyScheduledFields(): Promise<void> {
+        try {
+            await this.tasksCollection.updateMany(
+                { nextRunAt: { $exists: false }, scheduledAt: { $exists: true } } as Filter<ReactiveTaskRecord<T>>,
+                {
+                    $rename: { scheduledAt: 'nextRunAt', initialScheduledAt: 'dueAt' },
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                } as any,
+            );
+        } catch (err) {
+            this.onError(err as Error);
+        }
     }
 
     public async findAndLockNextTask(taskDefs: ReactiveTaskInternal<T>[], options: { visibilityTimeoutMs: number }): Promise<ReactiveTaskRecord<T> | null> {
@@ -166,9 +196,17 @@ export class ReactiveTaskRepository<T extends Document> {
         // the filter does not match and we leave the new claimant's state
         // alone. A task without startedAt (shouldn't happen once claimed) falls
         // back to _id-only matching to preserve BC.
+        //
+        // The status guard ensures finalize only ever transitions a task that is
+        // still being processed. Without it, a handler that calls markCompleted()
+        // (durably writing status='completed') and then throws would have its
+        // error-finalize revert the completed record to pending/failed and
+        // re-run the whole handler. An aborted transaction rolls the status back
+        // to 'processing', so that legitimate retry path still matches.
+        const activeStatuses = ['processing', 'processing_dirty'];
         const finalizeFilter: Filter<ReactiveTaskRecord<T>> = taskRecord.startedAt
-            ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt } as Filter<ReactiveTaskRecord<T>>)
-            : ({ _id: taskRecord._id } as Filter<ReactiveTaskRecord<T>>);
+            ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt, status: { $in: activeStatuses } } as Filter<ReactiveTaskRecord<T>>)
+            : ({ _id: taskRecord._id, status: { $in: activeStatuses } } as Filter<ReactiveTaskRecord<T>>);
 
         const result = await this.tasksCollection.updateOne(
             finalizeFilter,
@@ -204,17 +242,22 @@ export class ReactiveTaskRepository<T extends Document> {
         // Wait, if we defer, we are explicitly saying "don't run yet".
         // In clean slate, dueAt is set at creation and never changes (unless strictly needed for lag reset).
 
-        await this.tasksCollection.updateOne(
-            { _id: taskRecord._id },
-            {
-                $set: {
-                    status: 'pending',
-                    nextRunAt: nextRunAt,
-                    // dueAt: not changed
-                    attempts: 0,
-                },
+        // CAS on startedAt + active status, like finalizeTask: if this worker's
+        // visibility lock was stolen (another worker re-claimed with a new
+        // startedAt, or already completed the task), the defer must be a no-op
+        // rather than reviving the record and causing a double execution.
+        const deferFilter: Filter<ReactiveTaskRecord<T>> = taskRecord.startedAt
+            ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt, status: { $in: ['processing', 'processing_dirty'] } } as Filter<ReactiveTaskRecord<T>>)
+            : ({ _id: taskRecord._id } as Filter<ReactiveTaskRecord<T>>);
+
+        await this.tasksCollection.updateOne(deferFilter, {
+            $set: {
+                status: 'pending',
+                nextRunAt: nextRunAt,
+                // dueAt: not changed
+                attempts: 0,
             },
-        );
+        });
     }
 
     public async executeBulkWrite(

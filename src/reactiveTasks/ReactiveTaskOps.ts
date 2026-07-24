@@ -5,6 +5,16 @@ import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 
 const debug = _debug('mongodash:reactiveTasks:ops');
 
+/** True for a MongoDB duplicate-key error, whether raised directly or wrapped in a bulk-write result. */
+function isDuplicateKeyError(error: unknown): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const err = error as any;
+    if (!err) return false;
+    if (err.code === 11000 || err.code === 11001) return true;
+    if (Array.isArray(err.writeErrors) && err.writeErrors.some((we: { code?: number }) => we?.code === 11000 || we?.code === 11001)) return true;
+    return false;
+}
+
 /**
  * Helper class for generating and executing reactive task operations.
  *
@@ -46,21 +56,41 @@ export class ReactiveTaskOps {
         }
 
         debug(`Executing pipeline for ${collectionName} handling ${sourceDocIds.length} docs`);
-        try {
-            await entry.sourceCollection.aggregate(pipeline).toArray();
 
-            debug(`Pipeline executed successfully for ${collectionName}`);
-
-            // Notify that tasks have been planned
-            for (const task of entry.tasks.values()) {
-                if (allowedTaskNames && !allowedTaskNames.has(task.task)) continue;
-                // Use effective debounce
-                const effectiveDebounce = this.forceDebounceMs !== undefined ? this.forceDebounceMs : task.debounceMs;
-                this.onTaskPlanned(task.tasksCollection.collectionName, effectiveDebounce);
+        // The $merge (whenNotMatched:'insert') is not atomic between its
+        // match-check and insert. When the live change stream and a reconcile
+        // scan plan the same freshly-inserted (task, sourceDocId) concurrently,
+        // one $merge collides with the unique index and throws E11000. That is a
+        // benign race - the unique index preserved correctness and the task
+        // exists - so retry (the colliding doc now takes the whenMatched path)
+        // and, if it persists, swallow rather than fail the flush (which would
+        // force a leader re-election / planner flapping).
+        const maxAttempts = 3;
+        for (let attempt = 1; ; attempt++) {
+            try {
+                await entry.sourceCollection.aggregate(pipeline).toArray();
+                debug(`Pipeline executed successfully for ${collectionName}`);
+                break;
+            } catch (error) {
+                if (isDuplicateKeyError(error)) {
+                    if (attempt < maxAttempts) {
+                        debug(`Duplicate key during planning for ${collectionName} (benign race), retry ${attempt}.`);
+                        continue;
+                    }
+                    debug(`Duplicate key during planning for ${collectionName} after ${attempt} attempts, ignoring.`);
+                    break;
+                }
+                debug(`Error executing pipeline for ${collectionName}: `, error);
+                throw error;
             }
-        } catch (error) {
-            debug(`Error executing pipeline for ${collectionName}: `, error);
-            throw error;
+        }
+
+        // Notify that tasks have been planned
+        for (const task of entry.tasks.values()) {
+            if (allowedTaskNames && !allowedTaskNames.has(task.task)) continue;
+            // Use effective debounce
+            const effectiveDebounce = this.forceDebounceMs !== undefined ? this.forceDebounceMs : task.debounceMs;
+            this.onTaskPlanned(task.tasksCollection.collectionName, effectiveDebounce);
         }
     }
 
