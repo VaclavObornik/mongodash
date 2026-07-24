@@ -94,6 +94,21 @@ export async function init(options: InitOptions): Promise<void> {
     }
     initCalled = true;
 
+    try {
+        await initInternal(options);
+        resolveInitPromise();
+    } catch (err) {
+        // A common startup race is the app container coming up before MongoDB is
+        // reachable, so the first await (initMongoClient) rejects. Reset the
+        // guard so the caller can retry init() instead of being permanently
+        // stuck with an unresolved initPromise and a "can be called only once"
+        // error on every retry.
+        initCalled = false;
+        throw err;
+    }
+}
+
+async function initInternal(options: InitOptions): Promise<void> {
     // effective default handling is inside setters (or logic below)
     // Actually, secureWrap is handled in setters now.
     setGlobalOnError(options.onError || defaultOnError);
@@ -132,6 +147,4 @@ export async function init(options: InitOptions): Promise<void> {
         globalsCollection: globalsCollection,
         reactiveTaskCaller: options.reactiveTaskCaller ?? taskCaller,
     });
-
-    resolveInitPromise();
 }

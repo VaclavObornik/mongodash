@@ -33,7 +33,15 @@ async function getLockerCollection() {
             const collection = getCollection<LockDocument>('locks');
             await collection.createIndex({ [expirationKey]: 1 }, { name: 'expiresAtIndex', expireAfterSeconds: 0 });
             return collection;
-        })();
+        })().catch((err) => {
+            // Do not cache a failed setup. A transient createIndex failure (e.g.
+            // a primary election on first use) would otherwise leave a rejected
+            // promise memoized and disable ALL locking for the process lifetime.
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore reset so the next call retries the setup
+            collectionPromise = null;
+            throw err;
+        });
     }
     return collectionPromise;
 }

@@ -33,6 +33,11 @@ export async function withTransaction<T>(callback: (session: ClientSession) => P
         let returnValue: T;
 
         await clientSession.withTransaction(async () => {
+            // Reset the hook list at the start of EVERY attempt. The driver
+            // re-invokes this callback on a TransientTransactionError (write
+            // conflict, step-down); without the reset each retry re-appends
+            // the same hooks and they fire once per attempt after commit.
+            postCommitHooks.set(clientSession, []);
             returnValue = await callback(clientSession);
         });
 

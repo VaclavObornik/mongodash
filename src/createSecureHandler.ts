@@ -7,7 +7,14 @@ export function createSecureHandler<T extends (...args: any[]) => any>(handler: 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ((...args: any[]) => {
         try {
-            return handler(...args);
+            const result = handler(...args);
+            // An async handler (e.g. `onError: async e => await alerting.post(e)`)
+            // returns a promise; a rejection here would become an unhandled
+            // rejection and, on Node >=15, terminate the process. Swallow it too.
+            if (result && typeof (result as { then?: unknown }).then === 'function') {
+                return (result as Promise<unknown>).catch(() => undefined);
+            }
+            return result;
         } catch {
             // intentionally suppress
         }
