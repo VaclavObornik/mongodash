@@ -33,6 +33,9 @@ export class LeaderElector {
     private _isLeader = false;
     private leaderTimer: NodeJS.Timeout | null = null;
     private metaDocId = REACTIVE_TASK_META_DOC_ID;
+    // The election round currently in flight (if any). stop() awaits it so a
+    // leadership acquired concurrently with shutdown is observed and released.
+    private currentLoopPromise: Promise<void> | null = null;
 
     constructor(
         private globalsCollection: GlobalsCollection,
@@ -62,6 +65,18 @@ export class LeaderElector {
         if (this.leaderTimer) {
             clearTimeout(this.leaderTimer);
             this.leaderTimer = null;
+        }
+
+        // Wait for any election round already in flight to settle. Without this,
+        // a tryAcquireLock() that was mid-round when stop() ran could resolve
+        // AFTER we checked _isLeader, acquire leadership, and leave the DB lock
+        // held (blocking handoff for a full TTL) and the change stream running.
+        if (this.currentLoopPromise) {
+            try {
+                await this.currentLoopPromise;
+            } catch {
+                // Already reported via onError inside the loop.
+            }
         }
 
         if (this._isLeader) {
@@ -102,13 +117,17 @@ export class LeaderElector {
             } catch (error) {
                 this.onError(error as Error);
             } finally {
+                this.currentLoopPromise = null;
                 if (this.isRunning) {
-                    this.leaderTimer = setTimeout(loop, this.options.lockHeartbeatMs);
+                    this.leaderTimer = setTimeout(() => {
+                        this.currentLoopPromise = loop();
+                    }, this.options.lockHeartbeatMs);
                 }
             }
         };
 
-        await loop();
+        this.currentLoopPromise = loop();
+        await this.currentLoopPromise;
     }
 
     private async tryAcquireLock(): Promise<void> {
@@ -145,11 +164,39 @@ export class LeaderElector {
                 includeResultMetadata: true,
             })) as unknown as ModifyResult<MetaDocument>;
 
+            // stop() may have run while this findOneAndUpdate was in flight. Do
+            // not transition into leadership during shutdown (that would start
+            // the planner as it is being torn down); release the lock if this
+            // round just wrote it so it is not held for a full TTL.
+            if (!this.isRunning) {
+                if (result.value?.lock?.instanceId === this.instanceId) {
+                    await this.releaseLock();
+                }
+                return;
+            }
+
             if (result.value?.lock?.instanceId === this.instanceId) {
                 if (!this._isLeader) {
                     this._isLeader = true;
                     debug(`[Scheduler ${this.instanceId}] Leader lock acquired.`);
-                    await this.callbacks.onBecomeLeader();
+                    try {
+                        await this.callbacks.onBecomeLeader();
+                    } catch (err) {
+                        // onBecomeLeader (planner start / reconcile) failed. Do NOT
+                        // keep renewing the lock every heartbeat while never running
+                        // the planner - that monopolizes leadership and halts task
+                        // planning cluster-wide. Release the lock so another instance
+                        // can take over, clean up any partial start, and surface the
+                        // error. The next heartbeat re-attempts acquisition fresh.
+                        this._isLeader = false;
+                        try {
+                            await this.callbacks.onLoseLeader();
+                        } catch (loseErr) {
+                            this.onError(loseErr as Error);
+                        }
+                        await this.releaseLock();
+                        throw err;
+                    }
                 }
             } else {
                 if (this._isLeader) {
