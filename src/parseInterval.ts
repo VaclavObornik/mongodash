@@ -21,6 +21,11 @@ export function createIntervalFunction(
         if (!Number.isFinite(interval)) {
             throw new Error(`Error: Interval number has to be finite.`);
         }
+        if (interval <= 0) {
+            // A non-positive interval makes the task perpetually due; combined
+            // with the post-run speedUp() this busy-loops a worker.
+            throw new Error(`Error: Interval number has to be a positive number of milliseconds.`);
+        }
         return (referenceDate?: Date) => new Date((referenceDate?.getTime() ?? Date.now()) + interval);
     }
 
@@ -56,6 +61,11 @@ export function createIntervalFunction(
     const duration = new Duration(interval).offset;
     if (typeof duration !== 'number' || Number.isNaN(duration)) {
         throw new Error('Error: Invalid interval.');
+    }
+    if (duration <= 0) {
+        // See the non-positive numeric guard above: a zero/negative duration
+        // ('0s', '-1h') would make the task perpetually due and busy-loop it.
+        throw new Error(`Error: Invalid interval. Duration '${interval}' must be positive.`);
     }
     return (referenceDate?: Date) => new Date((referenceDate?.getTime() ?? Date.now()) + duration);
 }

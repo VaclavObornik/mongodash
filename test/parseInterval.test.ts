@@ -15,6 +15,11 @@ describe('createIntervalFunction', () => {
             expect(() => createIntervalFunction(Infinity)).toThrow(/finite/);
             expect(() => createIntervalFunction(NaN)).toThrow(/finite/);
         });
+
+        it('should throw for zero or negative numbers (would busy-loop)', () => {
+            expect(() => createIntervalFunction(0)).toThrow(/positive/);
+            expect(() => createIntervalFunction(-5)).toThrow(/positive/);
+        });
     });
 
     describe('duration string input', () => {
@@ -41,6 +46,11 @@ describe('createIntervalFunction', () => {
 
         it('should throw for invalid duration string', () => {
             expect(() => createIntervalFunction('invalid')).toThrow(/Invalid interval/);
+        });
+
+        it('should throw for zero or negative durations (would busy-loop)', () => {
+            expect(() => createIntervalFunction('0s')).toThrow(/must be positive/);
+            expect(() => createIntervalFunction('-1h')).toThrow(/must be positive/);
         });
     });
 
