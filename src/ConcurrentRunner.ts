@@ -78,10 +78,17 @@ export class ConcurrentRunner {
             state.currentBackoff = state.options.minPollMs;
         }
 
-        for (let i = 0; i < this.options.concurrency; i++) {
+        // Guard against a misconfigured concurrency (0, negative, NaN, or a
+        // fractional value). Without this the loop would spawn zero workers,
+        // start() would still report success, and no source would ever be
+        // polled - every scheduled task silently stalls forever.
+        const requested = Number(this.options.concurrency);
+        const effectiveConcurrency = Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 1);
+
+        for (let i = 0; i < effectiveConcurrency; i++) {
             this.workers.push(this.runWorker());
         }
-        debug(`Started with ${this.options.concurrency} workers`);
+        debug(`Started with ${effectiveConcurrency} workers`);
     }
 
     public async stop(): Promise<void> {
