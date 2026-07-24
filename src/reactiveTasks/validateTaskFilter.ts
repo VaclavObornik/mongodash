@@ -1,5 +1,5 @@
 import { Document } from 'mongodb';
-import { queryToExpression } from './queryToExpression';
+import { queryToExpression, UnsupportedFieldOperatorError } from './queryToExpression';
 
 /**
  * Normalizes the task filter into a valid Aggregation Expression.
@@ -82,10 +82,19 @@ export function normalizeTaskFilter(filter: Document | undefined, taskName: stri
             return expr.$expr;
         }
         return expr;
-    } catch {
+    } catch (e) {
         // If conversion failed, it might be because it was already an expression.
         if (keys.length === 1 && keys[0] === '$expr') {
             return filter.$expr;
+        }
+        // A field-level unsupported operator (e.g. { tags: { $elemMatch: ... } })
+        // nested under $and/$or/$nor/$not is a genuine misuse: returning the raw
+        // filter would ship an invalid expression into the shared change-stream
+        // pipeline and crash-loop it. Fail fast at registration instead. A
+        // top-level unsupported operator just means the user passed a real
+        // aggregation expression (e.g. { $and: [{ $eq: [...] }] }) - keep it.
+        if ((e as UnsupportedFieldOperatorError).isUnsupportedFieldOperator) {
+            throw new Error(`Task '${taskName}': Failed to convert filter to expression: ${(e as Error).message}`);
         }
         return filter;
     }
