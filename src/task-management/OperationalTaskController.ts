@@ -28,12 +28,19 @@ export class OperationalTaskController {
             // Map collection to task names that belong to it
             const allTasks = this.scheduler.getRegistry().getAllTasks();
             const taskNamesInCollection = allTasks.filter((t) => t.sourceCollection.collectionName === params.collection).map((t) => t.task);
-            if (taskNamesInCollection.length > 0) {
-                query.task = taskNamesInCollection;
-            } else {
-                // No tasks in this collection, return empty result
-                query.task = ['__nonexistent__'];
+            if (taskNamesInCollection.length === 0) {
+                // No reactive tasks registered for this collection. Short-circuit
+                // to an empty page: injecting a sentinel task name would fail
+                // registry validation and surface as an HTTP 500.
+                return {
+                    items: [],
+                    total: 0,
+                    limit: Number(params.limit || 50),
+                    offset: Number(params.skip || 0),
+                    stats: { statuses: [], errorCount: 0 },
+                };
             }
+            query.task = taskNamesInCollection;
         }
 
         if (params.status) {

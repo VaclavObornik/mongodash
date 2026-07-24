@@ -182,7 +182,7 @@ describe('serveDashboard Integration Tests', () => {
             const scheduler = (API as any)._scheduler;
             (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/style.css');
             (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
             req.url = '/style.css';
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
@@ -195,7 +195,7 @@ describe('serveDashboard Integration Tests', () => {
             const scheduler = (API as any)._scheduler;
             (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/index.html');
             (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
             req.url = '/some/route';
             const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
@@ -207,7 +207,7 @@ describe('serveDashboard Integration Tests', () => {
             const scheduler = (API as any)._scheduler;
             (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/style.css');
             (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
             // Mounted at /api/utils/dashboard
             req.url = '/api/utils/dashboard/style.css';
@@ -220,7 +220,7 @@ describe('serveDashboard Integration Tests', () => {
             const scheduler = (API as any)._scheduler;
             (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/index.html');
             (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
             // Mounted at /api/utils/dashboard
             req.url = '/api/utils/dashboard/view/123';
@@ -246,7 +246,7 @@ describe('serveDashboard Integration Tests', () => {
                     return p.endsWith('dist/dashboard') || p.endsWith('style.css');
                 });
                 (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
                 req.url = '/style.css';
                 const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler }); // No explicit dashboardPath
@@ -267,7 +267,7 @@ describe('serveDashboard Integration Tests', () => {
                     return p.endsWith('/dashboard') || p.endsWith('style.css');
                 });
                 (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
-                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn() });
+                (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
 
                 req.url = '/style.css';
                 const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });

@@ -97,12 +97,23 @@ export async function serveDashboard(req: IncomingMessage, res: ServerResponse, 
         // We can check if the pathname (or parts of it) exist in dashboardPath.
 
         const pathParts = pathname.split('/').filter(Boolean);
-        // Try suffixes from longest to shortest
-        for (let i = 0; i < pathParts.length; i++) {
-            const potentialFile = pathParts.slice(i).join('/');
-            const filePath = path.join(dashboardPath, potentialFile);
-            if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-                return pipeFile(res, filePath);
+        const root = path.resolve(dashboardPath);
+        // Reject path-traversal attempts outright: `parseUrl` does not normalize
+        // `..` segments, so without this a request like
+        // `/dashboard/../../../../etc/passwd` would escape the dashboard root and
+        // disclose arbitrary process-readable files.
+        if (!pathParts.includes('..')) {
+            // Try suffixes from longest to shortest
+            for (let i = 0; i < pathParts.length; i++) {
+                const potentialFile = pathParts.slice(i).join('/');
+                const filePath = path.resolve(root, potentialFile);
+                // Defense in depth: the resolved path must stay inside the root.
+                if (filePath !== root && !filePath.startsWith(root + path.sep)) {
+                    continue;
+                }
+                if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+                    return pipeFile(res, filePath);
+                }
             }
         }
 
@@ -126,18 +137,41 @@ async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
     if ((req as any).body) return (req as any).body;
 
     return new Promise((resolve, reject) => {
-        let body = '';
+        // Cap the buffered body. Without a limit an attacker (the dashboard has
+        // no built-in auth) can stream an unbounded body and exhaust the heap,
+        // OOM-killing the whole host application.
+        const maxBodyBytes = 1_000_000; // 1 MB
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let settled = false;
+
         req.on('data', (chunk: Buffer | string) => {
-            body += chunk.toString();
+            if (settled) return;
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            size += buf.length;
+            if (size > maxBodyBytes) {
+                settled = true;
+                reject(new Error('Request body too large'));
+                req.destroy();
+                return;
+            }
+            chunks.push(buf);
         });
         req.on('end', () => {
+            if (settled) return;
+            settled = true;
             try {
+                const body = Buffer.concat(chunks).toString('utf8');
                 resolve(body ? JSON.parse(body) : {});
             } catch {
                 reject(new Error('Invalid JSON body'));
             }
         });
-        req.on('error', reject);
+        req.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+        });
     });
 }
 
@@ -165,7 +199,17 @@ function pipeFile(res: ServerResponse, filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase();
     const mime = mimeTypes[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', mime);
-    fs.createReadStream(filePath).pipe(res);
+    const stream = fs.createReadStream(filePath);
+    // .pipe() does not forward source errors; an unhandled 'error' on the read
+    // stream (EMFILE, file removed after statSync, EACCES) would otherwise throw
+    // an uncaughtException and crash the whole process.
+    stream.on('error', () => {
+        if (!res.headersSent) {
+            res.statusCode = 500;
+        }
+        res.end();
+    });
+    stream.pipe(res);
     return true;
 }
 
