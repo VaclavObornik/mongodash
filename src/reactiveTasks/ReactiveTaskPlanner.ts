@@ -85,7 +85,7 @@ export class ReactiveTaskPlanner {
         private onError: OnError = defaultOnError,
     ) {
         this.ops = new ReactiveTaskOps(registry, callbacks.onTaskPlanned);
-        this.reconciler = new ReactiveTaskReconciler(instanceId, globalsCollection, registry, this.ops, onInfo, internalOptions);
+        this.reconciler = new ReactiveTaskReconciler(instanceId, globalsCollection, registry, this.ops, onInfo, internalOptions, onError);
     }
 
     public updateOptions(options: Partial<typeof this.internalOptions>): void {
@@ -221,7 +221,12 @@ export class ReactiveTaskPlanner {
                     this.lastClusterTime = Date.now() / 1000;
                 }
             });
-            stream.on('error', (error) => this.handleStreamError(error as MongoError));
+            stream.on('error', (error) => {
+                // handleStreamError is async and its 280-recovery path awaits DB
+                // writes that can reject. Without this catch the rejection would
+                // be unhandled and terminate the process on Node >=15.
+                this.handleStreamError(error as MongoError).catch((e) => this.onError(e as Error));
+            });
             stream.on('close', () => {
                 this.onInfo({
                     message: `Change Stream closed.`,
@@ -256,7 +261,12 @@ export class ReactiveTaskPlanner {
         const collectionFilters = this.registry.getAllTasks().reduce((acc, taskDef) => {
             const collectionName = taskDef.sourceCollection.collectionName;
             if (!acc.has(collectionName)) {
-                acc.set(collectionName, { 'ns.coll': collectionName, $or: [] });
+                // Delete events never carry `fullDocument`, so a positive filter
+                // like { $eq: ['$fullDocument.status', 'active'] } evaluates false
+                // and the delete is dropped server-side - breaking real-time
+                // cleanup. Always let deletes on a watched collection through;
+                // processDeletions then applies the cleanupPolicy.
+                acc.set(collectionName, { 'ns.coll': collectionName, $or: [{ operationType: 'delete' }] });
             }
             acc.get(collectionName)!.$or.push(prefixFilterKeys({ $expr: taskDef.filter || {} }, 'fullDocument'));
             return acc;
@@ -304,7 +314,12 @@ export class ReactiveTaskPlanner {
             this.lastClusterTime = change.clusterTime.getHighBits();
         }
 
-        const docId = EJSON.stringify(change.documentKey._id, { relaxed: false });
+        // Key by collection + document id. Keying by _id alone collapses two
+        // documents that share an _id across different collections (a common
+        // pattern, e.g. a shared primary key) into one batch entry, silently
+        // dropping one document's planning.
+        const collectionName = change.ns?.coll ?? '';
+        const docId = `${collectionName} ${EJSON.stringify(change.documentKey._id, { relaxed: false })}`;
         this.taskBatch.set(docId, change);
         this.taskBatchLastResumeToken = change._id;
 
@@ -338,7 +353,28 @@ export class ReactiveTaskPlanner {
         }
     }
 
-    private async flushTaskBatch(): Promise<void> {
+    private flushChain: Promise<void> = Promise.resolve();
+
+    /**
+     * Serialize flushes. Two flushes can otherwise overlap (the sliding-window
+     * timer firing while a batch-size-triggered flush is still awaiting its DB
+     * write, or stopChangeStream flushing during an in-flight flush). Overlap
+     * makes the shared `isFlushing` boolean clear early, so `isEmpty` reports
+     * true while a flush is still writing - and a heartbeat landing there would
+     * save a resume token past events that flush has not durably planned,
+     * losing them if it later fails.
+     */
+    private flushTaskBatch(): Promise<void> {
+        const next = this.flushChain.then(
+            () => this.flushTaskBatchInner(),
+            () => this.flushTaskBatchInner(),
+        );
+        // Keep the chain from rejecting so a failed flush cannot break the tail.
+        this.flushChain = next.catch(() => undefined);
+        return next;
+    }
+
+    private async flushTaskBatchInner(): Promise<void> {
         if (this.batchFlushTimer) {
             clearTimeout(this.batchFlushTimer);
             this.batchFlushTimer = null;
@@ -485,19 +521,35 @@ export class ReactiveTaskPlanner {
 
     private async handleStreamError(error: MongoError): Promise<void> {
         if (error.code === 280) {
-            this.onError(new Error(`Critical error: Oplog history lost (ChangeStreamHistoryLost). Resetting Resume Token. Original error: ${error.message}`));
-            await this.globalsCollection.updateOne({ _id: this.metaDocId }, { $unset: { 'streamState.resumeToken': '', reconciliation: '' } });
+            try {
+                this.onError(
+                    new Error(`Critical error: Oplog history lost (ChangeStreamHistoryLost). Resetting Resume Token. Original error: ${error.message}`),
+                );
+                // Also clear the in-progress reconciliation checkpoint: a stale
+                // `reconciliationState` would make the recovery reconcile resume
+                // from `_id > lastId` and skip documents changed during the oplog
+                // gap. Oplog loss must trigger a complete rescan.
+                await this.globalsCollection.updateOne(
+                    { _id: this.metaDocId },
+                    { $unset: { 'streamState.resumeToken': '', reconciliation: '', reconciliationState: '' } },
+                );
 
-            this.onInfo({
-                message: `Oplog lost, triggering reconciliation...`,
-                code: CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
-            });
+                this.onInfo({
+                    message: `Oplog lost, triggering reconciliation...`,
+                    code: CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
+                });
 
-            // Start stream first to capture new events
-            await this.startChangeStream();
-            const currentStream = this.changeStream;
-            if (currentStream) {
-                await this.reconciler.reconcile(() => this.changeStream !== currentStream || this.changeStream === null);
+                // Start stream first to capture new events
+                await this.startChangeStream();
+                const currentStream = this.changeStream;
+                if (currentStream) {
+                    await this.reconciler.reconcile(() => this.changeStream !== currentStream || this.changeStream === null);
+                }
+            } catch (recoveryError) {
+                this.onError(recoveryError as Error);
+                // Fall back to the normal restart path (leader re-election) so the
+                // planner recovers instead of being left with a half-reset stream.
+                this.callbacks.onStreamError();
             }
         } else {
             this.onInfo({
