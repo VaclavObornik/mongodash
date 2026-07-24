@@ -26,6 +26,16 @@ Decides **WHEN** to re-run the task *if it already exists*.
 > [!TIP]
 > **Best Practice**: If you use a field in `filter` (like `status: 'paid'`), you implicitly don't need to put it in `watchProjection` unless the value can change while remaining valid (e.g., `amount > 100`). However, adding it is harmless and can improve clarity and storage efficiency.
 
+> [!CAUTION]
+> **Simple filters on array fields use whole-value equality.** A simple-query
+> filter such as `{ roles: 'admin' }` (or `{ roles: { $in: ['admin'] } }`) is
+> translated to an aggregation expression that compares the **whole field
+> value**. On a scalar field this matches MongoDB's query language exactly, but
+> on an **array** field it does **not** match by element membership the way
+> `db.find({ roles: 'admin' })` would. If your field is an array, match it
+> explicitly with an aggregation expression, e.g.
+> `filter: { $expr: { $in: ['admin', { $ifNull: ['$roles', []] }] } }`.
+
 ## Execution Model & Guarantees
 
 The system follows a **Reactive (State-Based)** execution model. It prioritizes **Eventual Consistency** over strict event logging.
