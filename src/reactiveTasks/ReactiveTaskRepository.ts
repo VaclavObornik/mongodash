@@ -42,24 +42,26 @@ export class ReactiveTaskRepository<T extends Document> {
 
     /**
      * Backward compatibility: versions before 2.3.1 stored the poll time in
-     * `scheduledAt` (and the baseline in `initialScheduledAt`); these were
-     * renamed to `nextRunAt` / `dueAt`. Records written by those versions have
-     * no `nextRunAt`, so the polling query (`nextRunAt: { $type: 'date' }`) and
-     * its partial index never see them and their tasks would silently never run
-     * again. This one-time, idempotent rename heals such records on startup.
+     * `scheduledAt` and the baseline in `initialScheduledAt`; these were renamed
+     * to `nextRunAt` / `dueAt`. Records written by those versions have no
+     * `nextRunAt`, so the polling query (`nextRunAt: { $type: 'date' }`) and its
+     * partial index never see them and their tasks would silently never run
+     * again. This one-time, idempotent migration heals such records on startup.
+     *
+     * `dueAt` is derived as `initialScheduledAt ?? scheduledAt`, mirroring the
+     * pre-2.3.1 baseline (`initialScheduledAt` was only written on defer/retry),
+     * so global-lag stays correct for legacy records that never deferred.
+     *
      * Best-effort: a transient failure is reported but must not block task
      * registration (the awaited initPromise). Runs once per process; matches
      * nothing (a cheap no-op) on databases that never used the legacy fields.
      */
     private async migrateLegacyScheduledFields(): Promise<void> {
         try {
-            await this.tasksCollection.updateMany(
-                { nextRunAt: { $exists: false }, scheduledAt: { $exists: true } } as Filter<ReactiveTaskRecord<T>>,
-                {
-                    $rename: { scheduledAt: 'nextRunAt', initialScheduledAt: 'dueAt' },
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                } as any,
-            );
+            await this.tasksCollection.updateMany({ nextRunAt: { $exists: false }, scheduledAt: { $exists: true } } as Filter<ReactiveTaskRecord<T>>, [
+                { $set: { nextRunAt: '$scheduledAt', dueAt: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] } } },
+                { $unset: ['scheduledAt', 'initialScheduledAt'] },
+            ]);
         } catch (err) {
             this.onError(err as Error);
         }

@@ -6,7 +6,7 @@ import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 const debug = _debug('mongodash:reactiveTasks:ops');
 
 /** True for a MongoDB duplicate-key error, whether raised directly or wrapped in a bulk-write result. */
-function isDuplicateKeyError(error: unknown): boolean {
+export function isDuplicateKeyError(error: unknown): boolean {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const err = error as any;
     if (!err) return false;

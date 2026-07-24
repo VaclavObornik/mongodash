@@ -553,6 +553,8 @@ export class MetricsCollector {
         // without a reset a label whose count drained to zero would keep its
         // last non-zero value for the process lifetime - a permanent false
         // backlog/lag alert (and runaway HPA scaling keyed on queue depth).
+        // reset() on a labelled gauge drops the drained series entirely (it does
+        // not emit an explicit 0); absence still clears the stale alert.
         (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.QUEUE_DEPTH) as Gauge | undefined)?.reset();
         (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.GLOBAL_LAG) as Gauge | undefined)?.reset();
 

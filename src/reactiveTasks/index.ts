@@ -377,14 +377,16 @@ export class ReactiveTaskScheduler {
         debug(`[Scheduler ${this.instanceId}] Stopping...`);
         this.isRunning = false;
 
-        // Clear any outstanding debounce timers so they neither fire against a
-        // stopped runner nor keep the event loop alive.
+        await Promise.all([this.leaderElector?.stop(), this.taskPlanner?.stop(), this.concurrentRunner!.stop(), this.metricsCollector?.stop()]);
+
+        // Clear outstanding debounce timers AFTER the planner's final flush,
+        // which can itself schedule one via onTaskPlanned. They are unref'd so
+        // they never keep the loop alive, but clearing here guarantees none
+        // survives stop().
         for (const timer of this.plannedSpeedUpTimers) {
             clearTimeout(timer);
         }
         this.plannedSpeedUpTimers.clear();
-
-        await Promise.all([this.leaderElector?.stop(), this.taskPlanner?.stop(), this.concurrentRunner!.stop(), this.metricsCollector?.stop()]);
 
         debug(`[Scheduler ${this.instanceId}] Stopped.`);
     }

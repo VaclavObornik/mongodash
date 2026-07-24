@@ -88,12 +88,16 @@ export function normalizeTaskFilter(filter: Document | undefined, taskName: stri
             return filter.$expr;
         }
         // A field-level unsupported operator (e.g. { tags: { $elemMatch: ... } })
-        // nested under $and/$or/$nor/$not is a genuine misuse: returning the raw
-        // filter would ship an invalid expression into the shared change-stream
-        // pipeline and crash-loop it. Fail fast at registration instead. A
-        // top-level unsupported operator just means the user passed a real
-        // aggregation expression (e.g. { $and: [{ $eq: [...] }] }) - keep it.
-        if ((e as UnsupportedFieldOperatorError).isUnsupportedFieldOperator) {
+        // nested under an unambiguous query logical operator ($and/$or/$nor) is a
+        // genuine misuse: returning the raw filter would ship an invalid
+        // expression into the shared change-stream pipeline and crash-loop it, so
+        // fail fast at registration. We deliberately exclude $not: it is
+        // ambiguous (`{ $not: [expr] }` is valid aggregation) and the converter
+        // mis-iterates its array operand, which would otherwise reject valid
+        // aggregation expressions. A top-level unsupported operator simply means
+        // the user passed a real aggregation expression - keep it.
+        const onlyQueryLogicalOps = keys.every((k) => k === '$and' || k === '$or' || k === '$nor');
+        if (onlyQueryLogicalOps && (e as UnsupportedFieldOperatorError).isUnsupportedFieldOperator) {
             throw new Error(`Task '${taskName}': Failed to convert filter to expression: ${(e as Error).message}`);
         }
         return filter;
