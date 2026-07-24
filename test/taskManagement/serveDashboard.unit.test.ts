@@ -228,6 +228,46 @@ describe('serveDashboard Integration Tests', () => {
             expect(handled).toBe(true);
             expect(fsMock.createReadStream).toHaveBeenCalledWith('/mock/dist/index.html');
         });
+
+        it('rejects a path-traversal attempt without reading the escaped file', async () => {
+            const scheduler = (API as any)._scheduler;
+            // Pretend the traversal target exists as a file; the traversal guard
+            // must still refuse to serve it.
+            (fsMock.existsSync as jest.Mock).mockReturnValue(true);
+            (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({ pipe: jest.fn(), on: jest.fn() });
+
+            req.url = '/dashboard/../../../../etc/passwd';
+            await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
+
+            // The escaped file must never be streamed. (A traversal path may still
+            // fall through to the safe in-root SPA index.html, which is fine.)
+            const streamed = (fsMock.createReadStream as jest.Mock).mock.calls.map((c) => c[0] as string);
+            expect(streamed.some((p) => p.includes('etc/passwd') || p.includes('..'))).toBe(false);
+            streamed.forEach((p) => expect(p.startsWith('/mock/dist')).toBe(true));
+        });
+
+        it('returns 500 (not a crash) when the file read stream errors', async () => {
+            const scheduler = (API as any)._scheduler;
+            (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/style.css');
+            (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+            let errorHandler: ((e: Error) => void) | undefined;
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({
+                pipe: jest.fn(),
+                on: jest.fn((ev: string, cb: (e: Error) => void) => {
+                    if (ev === 'error') errorHandler = cb;
+                }),
+            });
+
+            req.url = '/style.css';
+            (res as any).headersSent = false;
+            await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
+            expect(errorHandler).toBeDefined();
+            errorHandler!(new Error('EMFILE'));
+            expect(res.statusCode).toBe(500);
+            expect(endSpy).toHaveBeenCalled();
+        });
+
         describe('Path Resolution', () => {
             // We need to access the helper but it's internal.
             // But we can verify it by checking what path it tries to read.
@@ -277,6 +317,27 @@ describe('serveDashboard Integration Tests', () => {
                 expect(callArgs).toMatch(/\/dashboard\/style\.css$/);
                 expect(callArgs).not.toMatch(/dist\/dashboard\/style\.css$/);
             });
+        });
+    });
+
+    describe('Request body limit', () => {
+        it('rejects an oversized POST body with 500 and destroys the socket', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/reactive/retry';
+            (req as any).destroy = jest.fn();
+            const on = req.on as jest.Mock;
+
+            const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            const dataHandler = on.mock.calls.find((c) => c[0] === 'data')?.[1];
+            expect(dataHandler).toBeDefined();
+            // One chunk beyond the 1 MB cap.
+            dataHandler(Buffer.alloc(1_000_001));
+            const handled = await promise;
+
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(500);
+            expect((req as any).destroy).toHaveBeenCalled();
         });
     });
 });
