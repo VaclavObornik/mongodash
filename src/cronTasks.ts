@@ -185,13 +185,17 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
     return createIntervalFunction(interval, { cronOptions: state.cronExpressionParserOptions });
 }
 
+// Smallest gap enforced between "now" and a computed next run. A dynamic
+// interval that yields a past/now date would otherwise be perpetually due
+// and, together with the post-run speedUp(), busy-loop a worker.
+const minNextRunMs = 200;
+
 async function getNextRunDate(intervalFunction: IntervalFunction): Promise<Date> {
     const maybeDate: StaticInterval = await intervalFunction();
-    if (maybeDate instanceof Date) {
-        return maybeDate;
-    }
+    const next = maybeDate instanceof Date ? maybeDate : createIntervalFunctionFromScalar(maybeDate)();
 
-    return createIntervalFunctionFromScalar(maybeDate)();
+    const floor = Date.now() + minNextRunMs;
+    return next.getTime() < floor ? new Date(floor) : next;
 }
 
 export async function runCronTask(taskId: TaskId): Promise<void> {
@@ -217,7 +221,14 @@ function ensureIndex() {
                 { runImmediately: 1, _id: 1, lockedTill: 1 },
                 { name: 'runImmediatelyIndex', partialFilterExpression: { runImmediately: { $eq: true } } },
             ),
-        ]);
+        ]).catch((err) => {
+            // Do not cache the rejection: a transient failure (e.g. a primary
+            // election during a rolling deploy) would otherwise permanently
+            // reject and stop the scheduler from ever starting. Clearing the
+            // memo lets the next registration retry once the DB recovers.
+            state.ensureIndexPromise = null;
+            throw err;
+        });
     }
     return state.ensureIndexPromise;
 }
@@ -554,12 +565,15 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
     });
     debug(`task ${taskId} has been registered`);
 
-    await ensureIndex();
-
-    // if the cron tasks are logically running, ensure the loop is running
+    // Start the scheduler before (and independently of) index creation. The
+    // per-task `lockedTill` lock makes polling correct without the indexes -
+    // they only speed up the query - so a transient index-creation failure
+    // must never keep the scheduler from running (see ensureIndex reset).
     if (state.runCronTasks) {
         ensureStarted();
     }
+
+    await ensureIndex();
 }
 
 /**
