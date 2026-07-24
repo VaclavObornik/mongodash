@@ -38,3 +38,21 @@ Reconciliation respects your `filter` and `watchProjection`.
 -   If a document doesn't match the `filter`, no task is planned.
 -   If the `watchProjection` hasn't changed since the last run (comparing `lastObservedValues`), the task is **not** re-triggered.
 -   **Recommendation**: Carefully configure `filter` and `watchProjection` to minimize unnecessary processing during reconciliation.
+
+## Operational notes for very large collections
+
+The initial reconciliation runs inside the leader's work. Two things follow from
+that on collections with many millions of documents:
+
+-   **Leader lock TTL vs. scan time.** The leader renews its lock only between
+    heartbeats. If the very first reconciliation on a fresh deploy takes longer
+    than `lockTtlMs` (default 30s), the lock can expire and a second instance may
+    briefly also become leader and start its own scan, multiplying database load
+    until the scans finish. It is self-correcting (each scan is idempotent and
+    resumable), but to avoid it on large first-time reconciles, raise `lockTtlMs`
+    so it comfortably exceeds the expected scan time.
+-   **Cursor lifetime.** A single reconciliation batch that takes longer than the
+    server's cursor idle timeout (default ~10 min) can end the scan cursor early;
+    the collection is then finished on the next reconciliation (startup/restart).
+    Keep per-batch work well under that window (the default batch size is tuned
+    for this).

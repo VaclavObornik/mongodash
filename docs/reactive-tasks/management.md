@@ -27,20 +27,21 @@ const page1 = await getReactiveTasks(
     { limit: 50, skip: 0, sort: { nextRunAt: -1 } }
 );
 
-// Advanced: Helper to find task by properties of the SOURCE document
+// Advanced: Helper to find task by the SOURCE document id
 // This is powerful: "Find the task associated with Order #123"
 const orderTasks = await getReactiveTasks({
     task: 'sync-order',
     sourceDocFilter: { _id: 'order-123' }
 });
-
-// Advanced: Find tasks where source document matches complex filter
-// "Find sync tasks for all VIP users"
-const vipTasks = await getReactiveTasks({
-    task: 'sync-order',
-    sourceDocFilter: { isVip: true } 
-});
 ```
+
+> [!IMPORTANT]
+> `getReactiveTasks` and `countReactiveTasks` only accept a **source-id** filter
+> (`sourceDocFilter: { _id: ... }`). A complex source-document filter (e.g.
+> `{ isVip: true }`) throws here — only `retryReactiveTasks` resolves complex
+> source filters (it scans the source collection in batches). To list/count by a
+> source-document property, first resolve the ids yourself, then pass them as
+> `sourceDocFilter: { _id: [...] }`.
 
 ## Counting Tasks
 

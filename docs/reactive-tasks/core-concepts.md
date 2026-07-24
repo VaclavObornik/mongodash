@@ -70,6 +70,15 @@ Each reactive task is stored as a document in the `[collection]_tasks` collectio
     -   For `pending` tasks: The time when the task is eligible to run (includes delays/backoff).
     -   For `processing` tasks: The time when the processing lock expires (visibility timeout).
     -   For `completed`/`failed` tasks: `null` (removed from the polling index).
+
+> [!IMPORTANT]
+> **`visibilityTimeoutMs` does not bound a handler that never returns.** While a
+> handler is running, the worker keeps renewing the visibility lock, so the
+> timeout only lets another worker take over after this process **dies** — not
+> while it is alive but stuck. A handler that awaits a call with no client-side
+> timeout (e.g. an HTTP/DB request that hangs) holds its worker slot
+> indefinitely; enough hung handlers can stall all reactive-task polling on that
+> instance. **Always set your own timeouts** on external calls inside handlers.
 -   `dueAt` (formerly `initialScheduledAt`): The **Original Scheduled Time**.
     -   This value is static and represents when the task *should* have run primarily.
     -   It is used for calculating **Lag** metrics (SLA monitoring) and does not change during retries or backoffs.

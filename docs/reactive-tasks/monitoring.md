@@ -67,6 +67,17 @@ The system exposes the following metrics with standardized labels:
 > [!NOTE]
 > All new counters are **per-instance** (exported via the instance's local registry). In `cluster` mode they are summed across instances at scrape time; in `local` mode each instance reports its own value.
 
+> [!NOTE]
+> **Queue-depth / lag metrics scan the tasks collection.** The gauges
+> (`reactive_tasks_queue_depth`, `reactive_tasks_global_lag_seconds`) are
+> computed by the leader with an aggregation over the whole `[collection]_tasks`
+> collection each push interval (default 60s) and on each cluster-mode scrape.
+> That grouping is not index-covered, so on collections that retain millions of
+> records the periodic scan adds proportional load on the queried replica. Keep
+> the cleanup policy active so terminal records don't accumulate, and increase
+> `monitoring.pushIntervalMs` (and scrape interval) if the scan cost becomes
+> significant.
+
 ## Grafana Dashboard
 
 A comprehensive **Grafana Dashboard** ("Reactive Tasks - System Overview") is included with the package.
