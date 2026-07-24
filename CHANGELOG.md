@@ -1,3 +1,26 @@
+# [2.9.0](https://github.com/VaclavObornik/mongodash/compare/v2.8.0...v2.9.0)
+
+
+Production-readiness hardening across cron tasks, reactive tasks, locks and the
+dashboard. Full changes are in the PR; highlights:
+
+### Bug Fixes
+
+* **reactive-tasks:** preserve Date/ObjectId/BSON values in the change-stream watch pipeline (new documents with such filter values were silently never planned)
+* **reactive-tasks:** guard type-strict filter operators ($size/$regex) and fail fast on unsupported operators nested under $and/$or/$nor instead of crash-looping the change stream
+* **reactive-tasks:** key the change-stream batch by collection+_id (cross-collection _id collisions no longer drop a task); serialize flushes so a heartbeat cannot advance the resume token past un-planned events
+* **reactive-tasks:** CAS guards on finalize/defer prevent a completed task being reverted and re-run; one-time migration heals pre-2.3.1 records (`scheduledAt`→`nextRunAt`) that would otherwise never run
+* **reactive-tasks:** `hasError:false` now matches completed tasks; queue-depth/lag gauges reset so drained queues stop firing false alerts
+* **leader-elector:** release the lock when leader startup fails (no cluster-wide planning halt) and synchronize stop with an in-flight election
+* **cron:** a transient index-creation failure no longer permanently wedges the scheduler; reject non-positive intervals that would hot-loop a worker
+* **concurrent-runner:** clamp concurrency to at least one worker (a NaN/0 config silently ran nothing)
+* **api:** retryable `init()`, self-healing `withLock` index setup, crash-safe async error handlers, single-fire post-commit hooks on transaction retry
+* **api:** dashboard hardened against path traversal, unbounded request bodies, and file-read crashes
+
+### Chores
+
+* **deps:** update within-range dependencies (runtime `cron-parser` ^5.6.2; dev tooling refresh); 0 production vulnerabilities
+
 ## [1.7.1](https://github.com/VaclavObornik/mongodash/compare/v1.7.0...v1.7.1) (2025-12-27)
 
 
