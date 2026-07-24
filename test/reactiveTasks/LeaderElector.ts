@@ -66,6 +66,41 @@ describe('LeaderElector', () => {
         await elector.stop();
     });
 
+    it('releases the lock and steps down when onBecomeLeader fails (no monopoly)', async () => {
+        const onBecomeLeader = sandbox.stub().rejects(new Error('planner start failed'));
+        const onLoseLeader = sandbox.stub().resolves();
+        // Long heartbeat so exactly one election attempt happens in the window.
+        const elector = createElector('inst1', { onBecomeLeader, onLoseLeader }, { lockHeartbeatMs: 10000 });
+
+        await elector.start();
+        await wait(300);
+
+        expect(elector.isLeader).toBe(false);
+        sinon.assert.calledOnce(onBecomeLeader);
+        sinon.assert.calledOnce(onLoseLeader);
+
+        // The DB lock must be released so another instance can take over.
+        const metaDoc = await globalsCollection.findOne({ _id: REACTIVE_TASK_META_DOC_ID } as any);
+        expect(metaDoc?.lock).toBeFalsy();
+
+        await elector.stop();
+    });
+
+    it('lets another instance take over after the first leader keeps failing', async () => {
+        const failing = createElector('failing', { onBecomeLeader: sandbox.stub().rejects(new Error('boom')) }, { lockHeartbeatMs: 100 });
+        const healthyBecome = createReusableWaitableStub();
+        const healthy = createElector('healthy', { onBecomeLeader: healthyBecome.stub }, { lockHeartbeatMs: 100 });
+
+        await failing.start();
+        await healthy.start();
+        await healthyBecome.waitForNextCall();
+
+        expect(healthy.isLeader).toBe(true);
+
+        await failing.stop();
+        await healthy.stop();
+    });
+
     it('should renew lock periodically (heartbeat)', async () => {
         const callbacks = {
             onHeartbeat: createReusableWaitableStub().stub,
