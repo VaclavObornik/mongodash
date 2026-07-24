@@ -121,8 +121,12 @@ describe('ReactiveTask History', () => {
 
         // Add 10 executions
         for (let i = 0; i < 10; i++) {
-            // Simulate re-locking if needed (though finalizeTask works on _id regardless of status in DB,
-            // conceptually we are processing)
+            // finalizeTask only transitions a task that is still being processed
+            // (CAS status guard), so simulate a real worker re-claiming the task
+            // (status -> 'processing') before each finalize.
+            await tasksCollection.updateOne({ _id: taskId }, { $set: { status: 'processing' } });
+            taskRecord = (await tasksCollection.findOne({ _id: taskId }))!;
+
             await repository.finalizeTask(
                 taskRecord,
                 taskDef.retryStrategy,
@@ -130,18 +134,7 @@ describe('ReactiveTask History', () => {
                 100,
                 { durationMs: i },
                 5, // explicitly pass default 5 as repository logic doesn't know about taskDef defaults here
-                // Wait, here in test we are calling repository manually.
-                // If we omit argument, it uses default from repository signature which I changed to 5.
             );
-            // Re-fetch to get latest state for next call?
-            // Actually finalizeTask uses the ID, so we don't strictly need to refetch taskRecord
-            // UNLESS finalizeTask relies on properties of taskRecord that changed?
-            // implementation:
-            // let firstErrorAt = taskRecord.firstErrorAt;
-            // It READS from the passed record.
-            // If we don't update key fields like firstErrorAt (which we don't for success), it might be okay.
-            // But for correctness let's refetch or update the in-mem object.
-            taskRecord = (await tasksCollection.findOne({ _id: taskId }))!;
         }
 
         const updatedTask = (await tasksCollection.findOne({ _id: taskId }))!;
@@ -175,6 +168,11 @@ describe('ReactiveTask History', () => {
 
         // Add 10 executions
         for (let i = 0; i < 10; i++) {
+            // Re-claim (status -> 'processing') before each finalize; see the
+            // default-limit test above for why the CAS status guard requires it.
+            await tasksCollection.updateOne({ _id: taskId }, { $set: { status: 'processing' } });
+            taskRecord = (await tasksCollection.findOne({ _id: taskId }))!;
+
             await repository.finalizeTask(
                 taskRecord,
                 taskDef.retryStrategy,
@@ -183,7 +181,6 @@ describe('ReactiveTask History', () => {
                 { durationMs: i },
                 3, // pass custom limit explicitly
             );
-            taskRecord = (await tasksCollection.findOne({ _id: taskId }))!;
         }
 
         const updatedTask = (await tasksCollection.findOne({ _id: taskId }))!;
