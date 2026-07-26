@@ -118,4 +118,77 @@ describe('reactive task querying', () => {
     it('throws for a complex sourceDocFilter on getReactiveTasks (retry-only)', async () => {
         await expect(API.getReactiveTasks({ task: taskName, sourceDocFilter: { isVip: true } as never })).rejects.toThrow(/does not support complex/);
     });
+
+    it('supports a scalar status and a mixed hex/non-hex _id array', async () => {
+        const byScalarStatus = await API.getReactiveTasks({ task: taskName, status: 'failed' });
+        expect(byScalarStatus.items.map((i) => String(i._id))).toEqual([String(failedId)]);
+
+        // Array mixing a valid ObjectId hex and a non-hex value exercises both
+        // sides of the per-element hex conversion.
+        const byMixed = await API.getReactiveTasks({ task: taskName, _id: [completedId.toHexString(), 'not-an-object-id'] });
+        expect(byMixed.items.map((i) => String(i._id))).toEqual([String(completedId)]);
+    });
+
+    it('supports a non-hex string _id filter', async () => {
+        const stringId = 'literal-string-id';
+        await API.getCollection(tasksCollectionName).insertOne({
+            _id: stringId,
+            task: taskName,
+            sourceDocId: new ObjectId(),
+            status: 'pending',
+            attempts: 0,
+            nextRunAt: new Date(),
+            dueAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        } as never);
+
+        const res = await API.getReactiveTasks({ task: taskName, _id: stringId });
+        expect(res.items.map((i) => String(i._id))).toEqual([stringId]);
+    });
+
+    it('scatter-gathers across multiple collections (merged, sorted, paginated)', async () => {
+        // Register a second task on a DIFFERENT source collection so a query
+        // spanning both goes through the multi-collection merge path.
+        const secondTask = 'query-test-task-2';
+        const secondSource = 'query_source_items_2';
+        await API.reactiveTask({ task: secondTask, collection: secondSource, handler: async () => undefined });
+
+        const now = new Date();
+        await API.getCollection(`${secondSource}_tasks`).insertMany([
+            {
+                _id: new ObjectId(),
+                task: secondTask,
+                sourceDocId: new ObjectId(),
+                status: 'pending',
+                attempts: 0,
+                nextRunAt: new Date(now.getTime() + 1000),
+                dueAt: now,
+                createdAt: now,
+                updatedAt: now,
+            },
+            {
+                _id: new ObjectId(),
+                task: secondTask,
+                sourceDocId: new ObjectId(),
+                status: 'pending',
+                attempts: 0,
+                nextRunAt: new Date(now.getTime() + 2000),
+                dueAt: now,
+                createdAt: now,
+                updatedAt: now,
+            },
+        ] as never);
+
+        const all = await API.getReactiveTasks({ task: [taskName, secondTask] }, { sort: { field: 'nextRunAt', direction: 1 } });
+        expect(all.total).toBe(5); // 3 from the first collection + 2 from the second
+        expect(all.items.length).toBe(5);
+
+        // Pagination across the merged set.
+        const page = await API.getReactiveTasks({ task: [taskName, secondTask] }, { limit: 2, skip: 1, sort: { field: 'nextRunAt', direction: 1 } });
+        expect(page.items.length).toBe(2);
+        expect(page.total).toBe(5);
+
+        expect(await API.countReactiveTasks({ task: [taskName, secondTask] })).toBe(5);
+    });
 });
