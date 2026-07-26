@@ -17,10 +17,6 @@ dashboard. Full changes are in the PR; highlights:
 * **api:** retryable `init()`, self-healing `withLock` index setup, crash-safe async error handlers, single-fire post-commit hooks on transaction retry
 * **api:** dashboard hardened against path traversal, unbounded request bodies, and file-read crashes
 
-### Chores
-
-* **deps:** update within-range dependencies (runtime `cron-parser` ^5.6.2; dev tooling refresh); 0 production vulnerabilities
-
 ## [1.7.1](https://github.com/VaclavObornik/mongodash/compare/v1.7.0...v1.7.1) (2025-12-27)
 
 
