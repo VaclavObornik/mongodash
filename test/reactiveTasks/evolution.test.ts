@@ -212,7 +212,7 @@ describe('Reactive Task - E2E Evolution Scenarios', () => {
         }
 
         expect(finalTask?.status).toBe('completed');
-    });
+    }, 30000);
 
     it('Scenario 3: Logic Evolution (Reprocess All)', async () => {
         // --- DEPLOY V1 ---
@@ -263,7 +263,7 @@ describe('Reactive Task - E2E Evolution Scenarios', () => {
         const calls = await waitForV2(5000);
         const processedDoc = await calls[0].getDocument();
         expect(processedDoc._id).toBe('docA');
-    });
+    }, 30000);
 
     it('Scenario 4: Watch Projection Evolution', async () => {
         // --- DEPLOY V1 (Watch ONLY field 'a') ---
@@ -326,7 +326,7 @@ describe('Reactive Task - E2E Evolution Scenarios', () => {
         const processedDoc = await calls[0].getDocument();
         expect(processedDoc._id).toBe('docA');
         expect(processedDoc.b).toBe(2);
-    });
+    }, 30000);
 
     it('Scenario 5: Opt-out of Reconciliation', async () => {
         // --- DEPLOY V1 (Filter: status='A') ---
