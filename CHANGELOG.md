@@ -4,12 +4,38 @@
 Production-readiness hardening across cron tasks, reactive tasks, locks and the
 dashboard. Full changes are in the PR; highlights:
 
+### ⚠️ Upgrade notes — read before deploying
+
+Three changes are visible on upgrade. Each replaces a silent misbehaviour with a
+loud one, so an app that appeared to work on 2.8.0 can now fail fast:
+
+1. **Invalid intervals now throw at registration.** A non-positive `cronTask`
+   interval (`0`, `'0s'`, `'-1h'`, or a function returning a past time) used to
+   busy-loop a worker; it is now rejected. A dynamic interval that returns a
+   past date is floored to the near future instead of spinning.
+2. **Invalid reactive-task filters now throw at registration.** An unsupported
+   operator nested under `$and`/`$or`/`$nor` (e.g. `$elemMatch`) used to be
+   accepted and then crash-loop the shared change stream at runtime.
+3. **`reactiveTaskConcurrency` is clamped to at least 1.** `0`/`NaN` previously
+   started zero workers and processed nothing, silently. If you relied on `0`
+   as an undocumented "disable workers" switch, do not start reactive tasks on
+   that instance instead. (Cron already clamped this way.)
+
+**Pre-2.3.1 upgraders:** task records written before 2.3.1 (`scheduledAt` /
+`initialScheduledAt`) are migrated once, by the leader, to `nextRunAt` / `dueAt`
+— without this they are invisible to the poller and never run again. Terminal
+(completed/failed) records are explicitly parked with `nextRunAt: null` so they
+are **not** replayed. Prefer stopping pre-2.3.1 instances before starting 2.9.0
+ones: during a mixed rolling window an old instance can rewrite the legacy
+fields on an already-migrated record, which the one-shot migration will not
+revisit.
+
 ### Bug Fixes
 
 * **reactive-tasks:** preserve Date/ObjectId/BSON values in the change-stream watch pipeline (new documents with such filter values were silently never planned)
 * **reactive-tasks:** guard type-strict filter operators ($size/$regex) and fail fast on unsupported operators nested under $and/$or/$nor instead of crash-looping the change stream
 * **reactive-tasks:** key the change-stream batch by collection+_id (cross-collection _id collisions no longer drop a task); serialize flushes so a heartbeat cannot advance the resume token past un-planned events
-* **reactive-tasks:** CAS guards on finalize/defer prevent a completed task being reverted and re-run; one-time migration heals pre-2.3.1 records (`scheduledAt`→`nextRunAt`) that would otherwise never run
+* **reactive-tasks:** CAS guards on finalize/defer prevent a completed task being reverted and re-run; a status-aware, leader-run migration heals pre-2.3.1 records (`scheduledAt`→`nextRunAt`) that would otherwise never run, while parking terminal records so they are never replayed
 * **reactive-tasks:** `hasError:false` now matches completed tasks; queue-depth/lag gauges reset so drained queues stop firing false alerts
 * **leader-elector:** release the lock when leader startup fails (no cluster-wide planning halt) and synchronize stop with an in-flight election
 * **cron:** a transient index-creation failure no longer permanently wedges the scheduler; reject non-positive intervals that would hot-loop a worker
