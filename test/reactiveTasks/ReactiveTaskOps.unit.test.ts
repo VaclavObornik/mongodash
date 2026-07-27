@@ -1,13 +1,34 @@
 import { isDuplicateKeyError, ReactiveTaskOps } from '../../src/reactiveTasks/ReactiveTaskOps';
 
+// The shapes below mirror what MongoDB actually returns for a $merge collision
+// on the planning index (verified against a live server): code 11000 plus
+// keyPattern/keyValue, and an errmsg naming the index.
+const PLANNING_KEY_PATTERN = { sourceDocId: 1, task: 1 };
+
 describe('isDuplicateKeyError', () => {
-    it('detects a direct duplicate-key error', () => {
-        expect(isDuplicateKeyError({ code: 11000 })).toBe(true);
-        expect(isDuplicateKeyError({ code: 11001 })).toBe(true);
+    it('detects the planning-index duplicate-key race', () => {
+        expect(isDuplicateKeyError({ code: 11000, keyPattern: PLANNING_KEY_PATTERN })).toBe(true);
+        expect(isDuplicateKeyError({ code: 11001, keyPattern: PLANNING_KEY_PATTERN })).toBe(true);
     });
 
-    it('detects a duplicate-key error wrapped in writeErrors', () => {
-        expect(isDuplicateKeyError({ writeErrors: [{ code: 11000 }] })).toBe(true);
+    it('detects it when wrapped in writeErrors', () => {
+        expect(isDuplicateKeyError({ writeErrors: [{ code: 11000, keyPattern: PLANNING_KEY_PATTERN }] })).toBe(true);
+    });
+
+    it('falls back to the error message when no keyPattern is present', () => {
+        expect(
+            isDuplicateKeyError({ code: 11000, errmsg: "E11000 duplicate key error ... index: sourceDocId_1_task_1 dup key: { sourceDocId: 1, task: 't' }" }),
+        ).toBe(true);
+    });
+
+    // The important guard: a violation of some OTHER unique index is a real
+    // error. Swallowing it would silently drop planning and advance the resume
+    // token past documents that were never written.
+    it('does NOT treat an unrelated unique-index violation as benign', () => {
+        expect(isDuplicateKeyError({ code: 11000, keyPattern: { email: 1 } })).toBe(false);
+        expect(isDuplicateKeyError({ code: 11000, keyPattern: { _id: 1 } })).toBe(false);
+        expect(isDuplicateKeyError({ writeErrors: [{ code: 11000, keyPattern: { email: 1 } }] })).toBe(false);
+        expect(isDuplicateKeyError({ code: 11000, errmsg: 'E11000 duplicate key error ... index: email_1' })).toBe(false);
     });
 
     it('returns false for non-duplicate / missing errors', () => {
@@ -42,8 +63,9 @@ describe('ReactiveTaskOps.executePlanningPipeline duplicate-key handling', () =>
             toArray: async () => {
                 calls++;
                 if (calls < 3) {
-                    const err = new Error('E11000 duplicate key') as Error & { code: number };
+                    const err = new Error('E11000 duplicate key') as Error & { code: number; keyPattern: unknown };
                     err.code = 11000;
+                    err.keyPattern = PLANNING_KEY_PATTERN;
                     throw err;
                 }
                 return [];
@@ -75,8 +97,9 @@ describe('ReactiveTaskOps.executePlanningPipeline duplicate-key handling', () =>
     it('gives up (does not throw) after persistent duplicate-key collisions', async () => {
         const entry = makeEntry(() => ({
             toArray: async () => {
-                const err = new Error('E11000 duplicate key') as Error & { code: number };
+                const err = new Error('E11000 duplicate key') as Error & { code: number; keyPattern: unknown };
                 err.code = 11000;
+                err.keyPattern = PLANNING_KEY_PATTERN;
                 throw err;
             },
         }));

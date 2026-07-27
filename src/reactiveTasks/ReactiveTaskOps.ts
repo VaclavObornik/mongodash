@@ -1,17 +1,41 @@
 import * as _debug from 'debug';
 import { Document } from 'mongodb';
+import { defaultOnError, OnError } from '../OnError';
 import { compileWatchProjection } from './compileWatchProjection';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 
 const debug = _debug('mongodash:reactiveTasks:ops');
 
-/** True for a MongoDB duplicate-key error, whether raised directly or wrapped in a bulk-write result. */
+/** Keys of the unique index that the planning `$merge` legitimately races on. */
+const PLANNING_UNIQUE_KEYS = ['sourceDocId', 'task'];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isPlanningUniqueViolation(err: any): boolean {
+    if (err?.code !== 11000 && err?.code !== 11001) return false;
+    // Without a keyPattern we cannot tell which index was hit; treat it as the
+    // planning index only if the message names both of its fields, so an
+    // unrelated unique index is never silently swallowed.
+    const pattern = err.keyPattern ?? err.keyValue;
+    if (pattern && typeof pattern === 'object') {
+        const keys = Object.keys(pattern);
+        return keys.length === PLANNING_UNIQUE_KEYS.length && PLANNING_UNIQUE_KEYS.every((k) => keys.includes(k));
+    }
+    const message = String(err.errmsg ?? err.message ?? '');
+    return PLANNING_UNIQUE_KEYS.every((k) => message.includes(k));
+}
+
+/**
+ * True only for the expected duplicate-key race on the `{ sourceDocId, task }`
+ * index that `$merge` relies on. Any other unique-index violation (an
+ * application-created index, an `_id` collision) is a real error and must
+ * surface rather than be retried and swallowed.
+ */
 export function isDuplicateKeyError(error: unknown): boolean {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const err = error as any;
     if (!err) return false;
-    if (err.code === 11000 || err.code === 11001) return true;
-    if (Array.isArray(err.writeErrors) && err.writeErrors.some((we: { code?: number }) => we?.code === 11000 || we?.code === 11001)) return true;
+    if (isPlanningUniqueViolation(err)) return true;
+    if (Array.isArray(err.writeErrors) && err.writeErrors.some((we: unknown) => isPlanningUniqueViolation(we))) return true;
     return false;
 }
 
@@ -28,6 +52,7 @@ export class ReactiveTaskOps {
     constructor(
         private registry: ReactiveTaskRegistry,
         private onTaskPlanned: (tasksCollectionName: string, debounceMs: number) => void,
+        private onError: OnError = defaultOnError,
     ) {}
 
     private _forceDebounceMs?: number;
@@ -77,7 +102,17 @@ export class ReactiveTaskOps {
                         debug(`Duplicate key during planning for ${collectionName} (benign race), retry ${attempt}.`);
                         continue;
                     }
-                    debug(`Duplicate key during planning for ${collectionName} after ${attempt} attempts, ignoring.`);
+                    // Persisting past the retries is no longer "benign" in any
+                    // useful sense: $merge is not atomic across documents, so an
+                    // abort can leave part of the batch unwritten while the
+                    // caller advances its resume token / checkpoint. Surface it
+                    // instead of leaving only a debug line.
+                    this.onError(
+                        new Error(
+                            `ReactiveTasks: planning for '${collectionName}' still hit a duplicate key after ${attempt} attempts; ` +
+                                `some tasks in this batch may not have been planned. Original: ${(error as Error)?.message}`,
+                        ),
+                    );
                     break;
                 }
                 debug(`Error executing pipeline for ${collectionName}: `, error);

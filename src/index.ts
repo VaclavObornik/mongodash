@@ -35,6 +35,7 @@ export { OnError } from './OnError';
 export { processInBatches, ProcessInBatchesOptions, ProcessInBatchesResult } from './processInBatches';
 export {
     CODE_REACTIVE_TASK_CLEANUP,
+    CODE_REACTIVE_TASK_DEFER_IGNORED,
     CODE_REACTIVE_TASK_FAILED,
     CODE_REACTIVE_TASK_FINISHED,
     CODE_REACTIVE_TASK_INITIALIZED,
@@ -46,6 +47,7 @@ export {
     CODE_REACTIVE_TASK_PLANNER_STOPPED,
     CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
     CODE_REACTIVE_TASK_STARTED,
+    CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION,
     countReactiveTasks,
     getPrometheusMetrics,
     getReactiveTasks,
@@ -69,6 +71,11 @@ export { isLockAlreadyAcquiredError, LockAlreadyAcquiredError, withLock, WithLoc
 export { PostCommitHook, registerPostCommitHook, withTransaction } from './withTransaction';
 
 let initCalled = false;
+/**
+ * Set once init() has started configuring the one-shot sub-systems (cron,
+ * reactive tasks). Past this point a failed init() cannot be retried cleanly.
+ */
+let subsystemsConfigured = false;
 
 type PackageOptions = {
     onError?: OnError;
@@ -103,7 +110,15 @@ export async function init(options: InitOptions): Promise<void> {
         // guard so the caller can retry init() instead of being permanently
         // stuck with an unresolved initPromise and a "can be called only once"
         // error on every retry.
-        initCalled = false;
+        //
+        // Only up to that point, though: once the sub-systems have been handed
+        // their (one-shot) configuration, a retry would fail inside them with a
+        // confusing secondary error such as "Cron tasks are already running".
+        // Keeping the guard set means the caller sees the real error and a
+        // retry is refused explicitly.
+        if (!subsystemsConfigured) {
+            initCalled = false;
+        }
         throw err;
     }
 }
@@ -135,6 +150,7 @@ async function initInternal(options: InitOptions): Promise<void> {
 
     withLockReset();
 
+    subsystemsConfigured = true;
     initCronTasks({
         runCronTasks: options.runCronTasks ?? true,
         cronTaskConcurrency: options.cronTaskConcurrency ?? 1,

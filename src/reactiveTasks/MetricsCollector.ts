@@ -548,22 +548,17 @@ export class MetricsCollector {
     }
 
     private async collectQueueMetrics(setGauge: (name: string, labels: Record<string, string | number>, val: number) => void): Promise<void> {
-        // Reset before re-setting present label combinations. getStatistics'
-        // $group emits no row for a (task,status) with zero documents, so
-        // without a reset a label whose count drained to zero would keep its
-        // last non-zero value for the process lifetime - a permanent false
-        // backlog/lag alert (and runaway HPA scaling keyed on queue depth).
-        // reset() on a labelled gauge drops the drained series entirely (it does
-        // not emit an explicit 0); absence still clears the stale alert.
-        (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.QUEUE_DEPTH) as Gauge | undefined)?.reset();
-        (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.GLOBAL_LAG) as Gauge | undefined)?.reset();
-
         const entries = this.registry.getAllEntries();
 
-        await Promise.all(
+        // Query everything BEFORE touching the gauges. Resetting first and then
+        // repopulating per collection means a single failing getStatistics
+        // erases that collection's series until the next successful pass;
+        // gathering first lets a partial failure keep the previous (stale but
+        // present) values instead.
+        const collected = await Promise.all(
             entries.map(async ({ repository }) => {
                 try {
-                    const stats = await repository.getStatistics(
+                    return await repository.getStatistics(
                         {},
                         {
                             readPreference: this.options.readPreference,
@@ -572,25 +567,41 @@ export class MetricsCollector {
                             groupByTask: true,
                         },
                     );
-
-                    for (const d of stats.statuses) {
-                        // When groupByTask is true, _id is { task, status }
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const id = d._id as any;
-                        setGauge(METRIC_NAMES.QUEUE_DEPTH, { task_name: id.task, status: id.status }, d.count);
-                    }
-
-                    const now = Date.now();
-                    const globalLag = stats.globalLag || [];
-                    for (const o of globalLag) {
-                        const lagSeconds = o.minScheduledAt ? Math.max(0, (now - new Date(o.minScheduledAt).getTime()) / 1000) : 0;
-                        setGauge(METRIC_NAMES.GLOBAL_LAG, { task_name: o._id }, lagSeconds);
-                    }
                 } catch (e) {
                     this.onError(e as Error);
+                    return null;
                 }
             }),
         );
+
+        // Only clear the previous values when every collection reported. The
+        // reset is what lets a drained (task,status) stop reporting a stale
+        // backlog: getStatistics' $group emits no row for a zero count, so
+        // without it the label would keep its last non-zero value for the
+        // process lifetime (a permanent false alert, and runaway HPA scaling
+        // keyed on queue depth). reset() drops the drained series entirely
+        // rather than emitting an explicit 0; absence still clears the alert.
+        if (collected.every((stats) => stats !== null)) {
+            (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.QUEUE_DEPTH) as Gauge | undefined)?.reset();
+            (this.globalStatsRegistry?.getSingleMetric(METRIC_NAMES.GLOBAL_LAG) as Gauge | undefined)?.reset();
+        }
+
+        const now = Date.now();
+        for (const stats of collected) {
+            if (!stats) continue;
+
+            for (const d of stats.statuses) {
+                // When groupByTask is true, _id is { task, status }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const id = d._id as any;
+                setGauge(METRIC_NAMES.QUEUE_DEPTH, { task_name: id.task, status: id.status }, d.count);
+            }
+
+            for (const o of stats.globalLag || []) {
+                const lagSeconds = o.minScheduledAt ? Math.max(0, (now - new Date(o.minScheduledAt).getTime()) / 1000) : 0;
+                setGauge(METRIC_NAMES.GLOBAL_LAG, { task_name: o._id }, lagSeconds);
+            }
+        }
     }
 
     private async collectReconciliationMetrics(setValue: (val: number) => void): Promise<void> {
