@@ -7,6 +7,23 @@ import { CODE_REACTIVE_TASK_LEADER_LOCK_LOST, MetaDocument, REACTIVE_TASK_META_D
 
 const debug = _debug('mongodash:reactiveTasks:leader');
 
+/**
+ * How long {@link LeaderElector.stop} waits for an in-flight election round.
+ * Only needs to cover a single findOneAndUpdate round-trip; see the comment at
+ * the await for why giving up early is safe.
+ */
+const STOP_WAIT_MS = 2000;
+
+/** Timer-based delay that never keeps the process alive. */
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        if (typeof timer.unref === 'function') {
+            timer.unref();
+        }
+    });
+}
+
 export interface LeaderElectorCallbacks {
     onBecomeLeader: () => Promise<void>;
     onLoseLeader: () => Promise<void>;
@@ -71,9 +88,17 @@ export class LeaderElector {
         // a tryAcquireLock() that was mid-round when stop() ran could resolve
         // AFTER we checked _isLeader, acquire leadership, and leave the DB lock
         // held (blocking handoff for a full TTL) and the change stream running.
+        //
+        // The wait is BOUNDED: a round that has progressed into onBecomeLeader
+        // runs the whole leader-startup path (legacy migration, evolution check,
+        // change stream, initial reconcile), which on a large deployment takes
+        // far longer than a SIGTERM grace period. Giving up early is safe -
+        // tryAcquireLock re-checks isRunning after its write and releases the
+        // lock itself - so this await only needs to cover the common case where
+        // the round is a single in-flight round-trip.
         if (this.currentLoopPromise) {
             try {
-                await this.currentLoopPromise;
+                await Promise.race([this.currentLoopPromise, delay(STOP_WAIT_MS)]);
             } catch {
                 // Already reported via onError inside the loop.
             }
