@@ -106,6 +106,9 @@ Root `mongodash`:
 - Transaction: `withTransaction`, `PostCommitHook`, `registerPostCommitHook`.
 - Utility: `processInBatches`, `getCollection`, `getMongoClient`.
 - Event codes: `CODE_REACTIVE_TASK_*` (many), `CODE_CRON_TASK_*` (4).
+  Every emitted code must be an exported constant - do not emit bare string
+  literals (2.9.0 promoted `CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION` and
+  `CODE_REACTIVE_TASK_DEFER_IGNORED` for exactly this reason).
 
 Subpath `mongodash/testing`:
 - `waitUntil` (generic poller), `waitUntilReactiveTasksIdle`,
