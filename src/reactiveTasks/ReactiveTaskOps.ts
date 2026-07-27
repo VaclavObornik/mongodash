@@ -7,6 +7,8 @@ const debug = _debug('mongodash:reactiveTasks:ops');
 
 /** Keys of the unique index that the planning `$merge` legitimately races on. */
 const PLANNING_UNIQUE_KEYS = ['sourceDocId', 'task'];
+/** Default name MongoDB gives that index, as it appears in a duplicate-key message. */
+const PLANNING_INDEX_NAME = /sourceDocId_1_task_1/;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isPlanningUniqueViolation(err: any): boolean {
@@ -20,7 +22,9 @@ function isPlanningUniqueViolation(err: any): boolean {
         return keys.length === PLANNING_UNIQUE_KEYS.length && PLANNING_UNIQUE_KEYS.every((k) => keys.includes(k));
     }
     const message = String(err.errmsg ?? err.message ?? '');
-    return PLANNING_UNIQUE_KEYS.every((k) => message.includes(k));
+    // Prefer the index name MongoDB reports; fall back to whole-word matches so
+    // an app index on e.g. `taskType` is not mistaken for `task`.
+    return PLANNING_INDEX_NAME.test(message) || PLANNING_UNIQUE_KEYS.every((k) => new RegExp(`\\b${k}\\b`).test(message));
 }
 
 /**

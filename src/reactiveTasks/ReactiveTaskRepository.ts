@@ -260,7 +260,12 @@ export class ReactiveTaskRepository<T extends Document> {
         return result.matchedCount > 0;
     }
 
-    public async deferTask(taskRecord: ReactiveTaskRecord<T>, delay: number | Date): Promise<void> {
+    /**
+     * Defer the task. Returns `false` when the CAS did not match, i.e. this
+     * worker no longer owns the record (its lock was stolen or it already
+     * finished) - the caller should surface that, like the finalize path does.
+     */
+    public async deferTask(taskRecord: ReactiveTaskRecord<T>, delay: number | Date): Promise<boolean> {
         const now = Date.now();
         const nextRunAt = typeof delay === 'number' ? new Date(now + delay) : delay;
         // Keeping dueAt unchanged (it shouldn't change on deferral if we want to track original intent,
@@ -280,7 +285,7 @@ export class ReactiveTaskRepository<T extends Document> {
               // is no longer being processed.
               ({ _id: taskRecord._id, status: { $in: ['processing', 'processing_dirty'] } } as Filter<ReactiveTaskRecord<T>>);
 
-        await this.tasksCollection.updateOne(deferFilter, {
+        const result = await this.tasksCollection.updateOne(deferFilter, {
             $set: {
                 status: 'pending',
                 nextRunAt: nextRunAt,
@@ -288,6 +293,8 @@ export class ReactiveTaskRepository<T extends Document> {
                 attempts: 0,
             },
         });
+
+        return result.matchedCount > 0;
     }
 
     public async executeBulkWrite(
