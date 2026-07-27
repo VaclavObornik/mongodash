@@ -6,10 +6,12 @@ import { onInfo } from '../OnInfo';
 import { compileWatchProjection } from './compileWatchProjection';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
+    CODE_REACTIVE_TASK_DEFER_IGNORED,
     CODE_REACTIVE_TASK_FAILED,
     CODE_REACTIVE_TASK_FINISHED,
     CODE_REACTIVE_TASK_LOCK_LOST,
     CODE_REACTIVE_TASK_STARTED,
+    CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION,
     ReactiveTaskCaller,
     ReactiveTaskContext,
     ReactiveTaskFilter,
@@ -291,7 +293,7 @@ export class ReactiveTaskWorker {
                 if (isManuallyFinalized) {
                     onInfo({
                         message: `[ReactiveTask] Task '${taskRecord.task}' (ID: ${taskRecord._id}) was manually marked as completed, but deferCurrent() was also called. Ignoring defer request.`,
-                        code: 'reactiveTaskDeferIgnored',
+                        code: CODE_REACTIVE_TASK_DEFER_IGNORED,
                         taskId: taskRecord._id.toString(),
                     });
                     return;
@@ -359,7 +361,7 @@ export class ReactiveTaskWorker {
                 onInfo({
                     message: `Reactive task '${taskRecord.task}' threw after markCompleted(); the task stays completed and is not retried.`,
                     taskId: taskRecord._id.toString(),
-                    code: 'reactiveTaskThrewAfterCompletion',
+                    code: CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION,
                     reason: error instanceof Error ? error.message : `${error}`,
                 });
                 return;

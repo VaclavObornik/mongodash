@@ -275,7 +275,10 @@ export class ReactiveTaskRepository<T extends Document> {
         // rather than reviving the record and causing a double execution.
         const deferFilter: Filter<ReactiveTaskRecord<T>> = taskRecord.startedAt
             ? ({ _id: taskRecord._id, startedAt: taskRecord.startedAt, status: { $in: ['processing', 'processing_dirty'] } } as Filter<ReactiveTaskRecord<T>>)
-            : ({ _id: taskRecord._id } as Filter<ReactiveTaskRecord<T>>);
+            : // Keep the status guard on the no-startedAt fallback too (as
+              // finalizeTask does), so a stale defer cannot revive a record that
+              // is no longer being processed.
+              ({ _id: taskRecord._id, status: { $in: ['processing', 'processing_dirty'] } } as Filter<ReactiveTaskRecord<T>>);
 
         await this.tasksCollection.updateOne(deferFilter, {
             $set: {

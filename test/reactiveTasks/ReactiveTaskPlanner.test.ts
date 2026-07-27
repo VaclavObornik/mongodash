@@ -47,5 +47,40 @@ describe('ReactiveTaskPlanner', () => {
             expect(Object.keys(lastStage.$project)).not.toContain('fullDocument');
             expect(Object.keys(lastStage.$project)).not.toContain('updateDescription');
         });
+
+        // Deletes carry no fullDocument, so a positive filter would drop them
+        // server-side and real-time cleanup would never fire. They are let
+        // through - but only where the cleanup policy actually acts on them.
+        const buildPipeline = (deleteWhen: string) => {
+            const mockRegistry: any = {
+                getAllTasks: () => [
+                    {
+                        sourceCollection: { collectionName: 'testColl' },
+                        filter: { $eq: ['$status', 'active'] },
+                        tasksCollection: { collectionName: 'testColl_tasks' },
+                        task: 'testTask',
+                        cleanupPolicyParsed: { deleteWhen, keepForMs: 0 },
+                    },
+                ],
+                getEntry: () => undefined,
+            };
+            const planner = new ReactiveTaskPlanner({ findOne: jest.fn() } as any, 'instance-id', mockRegistry, { onStreamError: noop, onTaskPlanned: noop }, {
+                batchSize: 100,
+                batchIntervalMs: 1000,
+                getNextCleanupDate: () => new Date(),
+            } as any);
+            const pipeline = (planner as any).getChangeStreamPipeline();
+            return pipeline[0].$match.$or[0].$or as Array<Record<string, unknown>>;
+        };
+
+        it('lets delete events bypass the fullDocument filter when cleanup acts on deletes', () => {
+            const clauses = buildPipeline('sourceDocumentDeleted');
+            expect(clauses.some((c) => c.operationType === 'delete')).toBe(true);
+        });
+
+        it('does not stream deletes for collections whose cleanup policy is never', () => {
+            const clauses = buildPipeline('never');
+            expect(clauses.some((c) => c.operationType === 'delete')).toBe(false);
+        });
     });
 });

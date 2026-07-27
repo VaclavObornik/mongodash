@@ -28,7 +28,14 @@ loud one, so an app that appeared to work on 2.8.0 can now fail fast:
 are **not** replayed. Prefer stopping pre-2.3.1 instances before starting 2.9.0
 ones: during a mixed rolling window an old instance can rewrite the legacy
 fields on an already-migrated record, which the one-shot migration will not
-revisit.
+revisit. If that happens, re-run the migration by clearing the marker —
+`db.<globals>.updateOne({ _id: '_mongodash_planner_meta' }, { $unset: { legacyScheduledAtMigratedAt: '' } })`
+— and restart the leader.
+
+**Downgrading:** 2.9.0 → 2.8.x is safe (2.8.x already reads `nextRunAt`/`dueAt`).
+Downgrading below 2.3.0 after the migration has run is **not** — those versions
+read `scheduledAt`, which the migration removed, so every task record would be
+stranded.
 
 ### Bug Fixes
 
