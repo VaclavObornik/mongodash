@@ -1,5 +1,6 @@
 import * as _debug from 'debug';
 import { Collection, Document, ObjectId } from 'mongodb';
+import { waitUntil } from '../../src/testing';
 import { createReusableWaitableStub, getNewInstance } from '../testHelpers';
 
 const debug = _debug('mongodash:tests:retryPolicy');
@@ -189,11 +190,12 @@ describe('reactiveTasks - Retry Policy', () => {
         const docId = new ObjectId();
         await sourceCollection.insertOne({ _id: docId, val: 1 });
         await waitForNextCall();
-        await new Promise((r) => setTimeout(r, 100)); // Allow finalizeTask to write to DB
 
+        // Poll for the finalize write rather than assuming a fixed delay: on a
+        // loaded runner the write can land well after an arbitrary sleep.
         const tasksCollection = instance.mongodash.getCollection(`retryTask_${taskId}_tasks`);
+        await waitUntil(async () => !!(await tasksCollection.findOne({}))?.firstErrorAt, { timeoutMs: 10000, pollIntervalMs: 25 });
         const task1 = await tasksCollection.findOne({});
-        expect(task1).not.toBeNull();
         expect(task1!.firstErrorAt).toBeTruthy();
         const firstErrorAt1 = task1!.firstErrorAt!;
 
@@ -205,8 +207,9 @@ describe('reactiveTasks - Retry Policy', () => {
         // Wait for reconciliation and next failure
         // We need to wait for the task to be re-processed.
         await waitForNextCall();
-        // Depending on timing/debounce, might need another wait or check directly.
-        await new Promise((r) => setTimeout(r, 100)); // Allow finalizeTask to write to DB
+        // Wait for the SECOND failure to be finalized (a second history entry),
+        // not merely for the handler to have been called again.
+        await waitUntil(async () => ((await tasksCollection.findOne({}))?.executionHistory?.length ?? 0) >= 2, { timeoutMs: 10000, pollIntervalMs: 25 });
 
         const task2 = await tasksCollection.findOne({});
         expect(task2).not.toBeNull();
