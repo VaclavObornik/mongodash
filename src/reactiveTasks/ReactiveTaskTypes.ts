@@ -112,6 +112,12 @@ export interface MetaDocument {
     };
     lastReconciledAt?: Date;
     lastCleanupAt?: Date;
+    /**
+     * Set once the pre-2.3.1 `scheduledAt`/`initialScheduledAt` records have been
+     * migrated to `nextRunAt`/`dueAt`. Gates a query that cannot use an index, so
+     * it must run once per cluster rather than on every startup.
+     */
+    legacyScheduledAtMigratedAt?: Date;
 }
 
 export interface RegistryDocument {
