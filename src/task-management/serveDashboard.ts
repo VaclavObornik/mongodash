@@ -131,6 +131,11 @@ export async function serveDashboard(req: IncomingMessage, res: ServerResponse, 
     return false;
 }
 
+/** Error carrying the HTTP status {@link sendError} should report. */
+function httpError(statusCode: number, message: string): Error & { statusCode: number } {
+    return Object.assign(new Error(message), { statusCode });
+}
+
 async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
     // If body is already parsed (Express/Koa with body-parser)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,8 +156,13 @@ async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
             size += buf.length;
             if (size > maxBodyBytes) {
                 settled = true;
-                reject(new Error('Request body too large'));
-                req.destroy();
+                chunks.length = 0; // release what we buffered
+                // Pause rather than destroy: destroying here would tear down the
+                // socket before the caller can write the 413 response. Node
+                // closes the connection itself once we reply without having
+                // consumed the request.
+                req.pause();
+                reject(httpError(413, 'Request body too large'));
                 return;
             }
             chunks.push(buf);
@@ -186,7 +196,7 @@ function sendJson(res: ServerResponse, data: any): boolean {
 }
 
 function sendError(res: ServerResponse, err: unknown): boolean {
-    res.statusCode = 500;
+    res.statusCode = (err as { statusCode?: number })?.statusCode ?? 500;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     return true;

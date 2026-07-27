@@ -197,4 +197,51 @@ describe('Reactive Task Transactions', () => {
         const task = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
         expect(task?.status).toBe('completed');
     });
+
+    it('keeps the task completed when the handler throws after a non-transactional markCompleted', async () => {
+        // Counterpart to the aborted-transaction case above: here the completion
+        // is durable, so the later throw must NOT revert it, retry it, or be
+        // reported as a lost lock.
+        const infoCodes: string[] = [];
+        await instance.initInstance({
+            monitoring: { enabled: false },
+            onInfo: ({ code }: { code: string }) => infoCodes.push(code),
+        } as never);
+        const collection = instance.mongodash.getCollection(SOURCE_COLLECTION);
+        const courseId = new ObjectId();
+        await collection.insertOne({ _id: courseId });
+
+        let attempts = 0;
+
+        await instance.mongodash.reactiveTask({
+            collection: SOURCE_COLLECTION,
+            task: 'throw-after-complete',
+            retryPolicy: { maxAttempts: 3, type: 'linear', interval: '100ms' },
+            handler: async (context: any) => {
+                attempts++;
+                await context.markCompleted(); // durable, no session
+                throw new Error('best-effort side effect failed');
+            },
+        });
+
+        await instance.mongodash.startReactiveTasks();
+
+        const tasksCollection = instance.mongodash.getCollection(`${SOURCE_COLLECTION}_tasks`);
+        await waitUntil(
+            async () => {
+                const doc = await tasksCollection.findOne({ task: 'throw-after-complete', sourceDocId: courseId });
+                return doc?.status === 'completed' || doc?.status === 'failed';
+            },
+            { timeoutMs: 15000, pollIntervalMs: 100 },
+        );
+
+        // Give any (wrong) retry a chance to fire.
+        await wait(1000);
+
+        const task = await tasksCollection.findOne({ task: 'throw-after-complete', sourceDocId: courseId });
+        expect(task?.status).toBe('completed');
+        expect(task?.nextRunAt).toBeNull();
+        expect(attempts).toBe(1); // never retried
+        expect(infoCodes).not.toContain('reactiveTaskLockLost'); // nothing was stolen
+    });
 });
