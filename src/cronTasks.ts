@@ -575,7 +575,12 @@ export async function cronTask(taskId: TaskId, interval: Interval, task: TaskFun
         ensureStarted();
     }
 
-    await ensureIndex();
+    // Report an index failure rather than rejecting: by this point the task is
+    // registered and already being polled, so rejecting would tell the caller
+    // registration failed for a task that actually runs - and their retry would
+    // then fail with "taskId is already used". The memo reset means the next
+    // registration retries the index creation.
+    await ensureIndex().catch((err) => onError(err as Error));
 }
 
 /**
