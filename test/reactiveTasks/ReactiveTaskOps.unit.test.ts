@@ -94,7 +94,7 @@ describe('ReactiveTaskOps.executePlanningPipeline duplicate-key handling', () =>
         expect(onTaskPlanned).not.toHaveBeenCalled();
     });
 
-    it('gives up (does not throw) after persistent duplicate-key collisions', async () => {
+    it('fails the flush after persistent duplicate-key collisions (no silent loss)', async () => {
         const entry = makeEntry(() => ({
             toArray: async () => {
                 const err = new Error('E11000 duplicate key') as Error & { code: number; keyPattern: unknown };
@@ -106,9 +106,11 @@ describe('ReactiveTaskOps.executePlanningPipeline duplicate-key handling', () =>
         const onTaskPlanned = jest.fn();
         const ops = new ReactiveTaskOps({ getEntry: () => entry } as never, onTaskPlanned);
 
-        await expect(ops.executePlanningPipeline('src', [1])).resolves.toBeUndefined();
+        // Throwing keeps the caller's resume token / checkpoint where it is, so
+        // the batch is replayed rather than silently skipped.
+        await expect(ops.executePlanningPipeline('src', [1])).rejects.toThrow(/duplicate key after 3 attempts/);
         expect(entry.sourceCollection.aggregate).toHaveBeenCalledTimes(3); // maxAttempts
-        expect(onTaskPlanned).toHaveBeenCalledTimes(1);
+        expect(onTaskPlanned).not.toHaveBeenCalled();
     });
 
     it('is a no-op when the collection has no registered entry', async () => {
