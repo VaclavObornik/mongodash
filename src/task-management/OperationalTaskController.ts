@@ -7,6 +7,14 @@ import { getMongoClient } from '../getMongoClient';
 import { onInfo } from '../OnInfo';
 import { CODE_MANUAL_TRIGGER, ReactiveTaskQuery, ReactiveTaskStatus } from '../reactiveTasks/ReactiveTaskTypes';
 
+const DEFAULT_PAGE_LIMIT = 50;
+/** Upper bound for a dashboard page; the endpoint is unauthenticated by design. */
+const MAX_PAGE_LIMIT = 500;
+
+/** Note `Number(x) || DEFAULT` also maps 0, '' and NaN to the default - and MongoDB reads `limit: 0` as unlimited. */
+const clampLimit = (value: unknown): number => Math.min(Math.max(Number(value) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+const clampSkip = (value: unknown): number => Math.max(Number(value) || 0, 0);
+
 export class OperationalTaskController {
     constructor(private scheduler: ReactiveTaskScheduler) {}
 
@@ -23,9 +31,11 @@ export class OperationalTaskController {
         const query: ReactiveTaskQuery<Document> = {};
 
         // Resolved once so the empty short-circuit below and the real query
-        // cannot drift apart (and so `limit: 0` is not silently turned into 50).
-        const limit = Number(params.limit ?? 50);
-        const skip = Number(params.skip ?? 0);
+        // cannot drift apart. Clamped, because this endpoint has no built-in
+        // auth and MongoDB treats `limit: 0` as UNLIMITED - `?limit=0` (or an
+        // empty `?limit=`) would otherwise buffer the whole tasks collection.
+        const limit = clampLimit(params.limit);
+        const skip = clampSkip(params.skip);
 
         if (params.task) {
             query.task = params.task;
@@ -136,8 +146,8 @@ export class OperationalTaskController {
     public async getCronTasks(params: CronTaskQuery) {
         return getCronTasksList({
             filter: params.filter,
-            limit: Number(params.limit || 50),
-            skip: Number(params.skip || 0),
+            limit: clampLimit(params.limit),
+            skip: clampSkip(params.skip),
             sort: params.sort,
         });
     }
