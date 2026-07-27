@@ -113,11 +113,15 @@ export interface MetaDocument {
     lastReconciledAt?: Date;
     lastCleanupAt?: Date;
     /**
-     * Set once the pre-2.3.1 `scheduledAt`/`initialScheduledAt` records have been
-     * migrated to `nextRunAt`/`dueAt`. Gates a query that cannot use an index, so
-     * it must run once per cluster rather than on every startup.
+     * Task collections whose pre-2.3.1 `scheduledAt`/`initialScheduledAt` records
+     * have been migrated to `nextRunAt`/`dueAt`. Gates a query that cannot use an
+     * index, so it must not run on every startup - but it is tracked per
+     * collection rather than globally, because the leader only ever sees the
+     * tasks registered on ITS instance: a heterogeneous deployment, or a task
+     * added after the first upgraded leader started, would otherwise be skipped
+     * forever behind a single cluster-wide flag.
      */
-    legacyScheduledAtMigratedAt?: Date;
+    legacyMigratedCollections?: string[];
 }
 
 export interface RegistryDocument {

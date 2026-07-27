@@ -134,9 +134,11 @@ describe('legacy (pre-2.3.1) task record migration', () => {
         }
     });
 
-    it('records the migration marker so it does not rescan on every start', async () => {
+    it('records a per-collection marker so it does not rescan on every start', async () => {
         const meta = (await API.getCollection('_mongodash_globals').findOne({ _id: '_mongodash_planner_meta' } as never)) as unknown as Record<string, unknown>;
-        expect(meta.legacyScheduledAtMigratedAt).toBeInstanceOf(Date);
+        // Per collection, not one cluster-wide flag: a leader only sees the
+        // tasks registered on its own instance.
+        expect(meta.legacyMigratedCollections).toEqual([tasksCollectionName]);
     });
 
     it('does not rescan once the marker is set (the migration is one-shot per cluster)', async () => {

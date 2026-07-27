@@ -84,7 +84,7 @@ export class ReactiveTaskPlanner {
         private onInfo: OnInfo = defaultOnInfo,
         private onError: OnError = defaultOnError,
     ) {
-        this.ops = new ReactiveTaskOps(registry, callbacks.onTaskPlanned, onError);
+        this.ops = new ReactiveTaskOps(registry, callbacks.onTaskPlanned);
         this.reconciler = new ReactiveTaskReconciler(instanceId, globalsCollection, registry, this.ops, onInfo, internalOptions, onError);
     }
 
@@ -122,6 +122,15 @@ export class ReactiveTaskPlanner {
         // We capture the time AFTER starting to ensure overlap with the stream.
         // This prevents a gap where events occurring between "now" and "stream start" would be missed.
         await this.startChangeStream();
+
+        // A stop() can also land while the stream is opening, i.e. after the
+        // check above. Closing here keeps that window from leaving a live
+        // stream behind with nothing left to close it.
+        if (this.stopRequested) {
+            debug(`[Scheduler ${this.instanceId}] Stop requested while the change stream was opening; closing it again.`);
+            await this.stopChangeStream();
+            return;
+        }
 
         // Pass the current stream instance to reconcile. If stream fails/restarts, instance changes and reconcile aborts.
         if (this.changeStream) {
@@ -587,41 +596,52 @@ export class ReactiveTaskPlanner {
     }
 
     /**
-     * One-time, cluster-wide migration of records written before 2.3.1
-     * (`scheduledAt`/`initialScheduledAt` -> `nextRunAt`/`dueAt`); see
+     * Migration of records written before 2.3.1 (`scheduledAt` /
+     * `initialScheduledAt` -> `nextRunAt` / `dueAt`); see
      * ReactiveTaskRepository.migrateLegacyScheduledFields for the mapping.
      *
-     * Gated on a marker in the meta doc because the matching query
+     * Gated on markers in the meta doc because the matching query
      * (`nextRunAt: { $exists: false }`) is the complement of the partial
      * `polling_idx` and therefore always a collection scan. Running it here -
-     * on the leader, once - keeps it off every instance's startup path, where
-     * it would also block task registration via the repository initPromise.
+     * on the leader - keeps it off every instance's startup path, where it
+     * would also block task registration via the repository initPromise.
      *
-     * The marker is written only after every collection succeeded, so a failure
-     * simply retries on the next leader start. Best-effort: a failure is
-     * reported and must not stop the planner (legacy records stay invisible,
-     * exactly as before this migration existed).
+     * The markers are PER TASK COLLECTION, not one cluster-wide flag: a leader
+     * can only migrate the collections whose tasks are registered on its own
+     * instance, so a heterogeneous deployment (or a task added after the first
+     * upgraded leader started) would otherwise have its records skipped
+     * forever. Each collection is marked as soon as it succeeds, so partial
+     * progress survives and a later leader picks up whatever is left.
+     *
+     * Best-effort: a failure is reported and must not stop the planner (legacy
+     * records stay invisible, exactly as before this migration existed).
      */
     private async migrateLegacyTaskRecords(): Promise<void> {
         try {
             const metaDoc = (await this.globalsCollection.findOne({ _id: this.metaDocId })) as MetaDocument | null;
-            if (metaDoc?.legacyScheduledAtMigratedAt) {
+            const alreadyMigrated = new Set(metaDoc?.legacyMigratedCollections ?? []);
+
+            const pending = this.registry.getAllEntries().filter((entry) => !alreadyMigrated.has(entry.tasksCollection.collectionName));
+            if (pending.length === 0) {
                 return;
             }
 
             let migrated = 0;
-            for (const entry of this.registry.getAllEntries()) {
+            for (const entry of pending) {
                 // A single updateMany cannot be interrupted, but a shutdown
-                // should not have to wait for every remaining collection. The
-                // marker is left unset so the next leader start resumes.
+                // should not have to wait for every remaining collection.
                 if (this.stopRequested) {
                     debug(`[Scheduler ${this.instanceId}] Legacy migration interrupted by stop; will resume on next leader start.`);
-                    return;
+                    break;
                 }
-                migrated += await entry.repository.migrateLegacyScheduledFields();
-            }
 
-            await this.globalsCollection.updateOne({ _id: this.metaDocId }, { $set: { legacyScheduledAtMigratedAt: new Date() } }, { upsert: true });
+                migrated += await entry.repository.migrateLegacyScheduledFields();
+                await this.globalsCollection.updateOne(
+                    { _id: this.metaDocId },
+                    { $addToSet: { legacyMigratedCollections: entry.tasksCollection.collectionName } },
+                    { upsert: true },
+                );
+            }
 
             if (migrated > 0) {
                 this.onInfo({
