@@ -6,13 +6,16 @@ dashboard. Full changes are in the PR; highlights:
 
 ### ⚠️ Upgrade notes — read before deploying
 
-Three changes are visible on upgrade. Each replaces a silent misbehaviour with a
-loud one, so an app that appeared to work on 2.8.0 can now fail fast:
+Each of these replaces a silent misbehaviour with a loud one, so an app that
+appeared to work on 2.8.0 can now fail fast:
 
 1. **Invalid intervals now throw at registration.** A non-positive `cronTask`
    interval (`0`, `'0s'`, `'-1h'`, or a function returning a past time) used to
    busy-loop a worker; it is now rejected. A dynamic interval that returns a
-   past date is floored to the near future instead of spinning.
+   past date is nudged to the near future instead of spinning (a legitimately
+   near occurrence is left alone, so a per-second CRON does not drift).
+   **This also covers `reactiveTaskCleanupInterval`** — a zero or negative
+   value there now throws from `init()`.
 2. **Invalid reactive-task filters now throw at registration.** An unsupported
    operator nested under `$and`/`$or`/`$nor` (e.g. `$elemMatch`) used to be
    accepted and then crash-loop the shared change stream at runtime.
@@ -20,16 +23,29 @@ loud one, so an app that appeared to work on 2.8.0 can now fail fast:
    started zero workers and processed nothing, silently. If you relied on `0`
    as an undocumented "disable workers" switch, do not start reactive tasks on
    that instance instead. (Cron already clamped this way.)
+4. **Tasks filtering on `$regex` or `$size` reconcile once on first start.**
+   Those operators now compile to type-guarded expressions (so a missing or
+   mistyped field no longer aborts the whole pipeline). The compiled filter is
+   what the evolution check fingerprints, so the change reads as a trigger-config
+   change and queues one full source-collection reconciliation per affected
+   task. It is idempotent and correctness-safe, but on very large collections
+   it is a real scan — and it stacks with the leader-lock note below. To skip
+   it, register those tasks with `evolution: { reconcileOnTriggerChange: false }`
+   for the first 2.9.0 deploy.
 
 **Pre-2.3.1 upgraders:** task records written before 2.3.1 (`scheduledAt` /
 `initialScheduledAt`) are migrated once, by the leader, to `nextRunAt` / `dueAt`
 — without this they are invisible to the poller and never run again. Terminal
 (completed/failed) records are explicitly parked with `nextRunAt: null` so they
-are **not** replayed. Prefer stopping pre-2.3.1 instances before starting 2.9.0
-ones: during a mixed rolling window an old instance can rewrite the legacy
-fields on an already-migrated record, which the one-shot migration will not
-revisit. If that happens, re-run the migration by clearing the marker —
-`db.<globals>.updateOne({ _id: '_mongodash_planner_meta' }, { $unset: { legacyScheduledAtMigratedAt: '' } })`
+are **not** replayed. The migration is tracked per task collection, so a
+collection whose tasks are only registered on some instances is still migrated
+once one of those instances becomes leader.
+
+Prefer stopping pre-2.3.1 instances before starting 2.9.0 ones: during a mixed
+rolling window an old instance can rewrite the legacy fields on an
+already-migrated record, which the migration will not revisit. If that happens,
+re-run it for a collection by removing its marker —
+`db.<globals>.updateOne({ _id: '_mongodash_planner_meta' }, { $pull: { legacyMigratedCollections: '<collection>_tasks' } })`
 — and restart the leader.
 
 **Downgrading:** 2.9.0 → 2.8.x is safe (2.8.x already reads `nextRunAt`/`dueAt`).
