@@ -41,4 +41,23 @@ describe('mongodash', () => {
             await instance.cleanUpInstance();
         }
     }, 20000);
+
+    it('should allow init to be retried after an invalid option', async () => {
+        // Pure-config validation happens before any sub-system is handed its
+        // one-shot config, so a typo does not consume the init guard and leave
+        // initPromise pending forever.
+        const instance = getNewInstance();
+
+        try {
+            await assert.rejects(() => instance.initInstance({ reactiveTaskCleanupInterval: 0 } as never), /positive/);
+
+            await instance.initInstance();
+
+            const collection = instance.mongodash.getCollection('init_option_retry_probe');
+            await collection.insertOne({ _id: 'ok' } as never);
+            expect(await collection.countDocuments({ _id: 'ok' } as never)).toBe(1);
+        } finally {
+            await instance.cleanUpInstance();
+        }
+    }, 20000);
 });

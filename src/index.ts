@@ -6,6 +6,7 @@ import { GlobalsCollection } from './globalsCollection';
 import { resolveInitPromise } from './initPromise';
 import { defaultOnError, OnError, setGlobalOnError } from './OnError';
 import { defaultOnInfo, OnInfo, setGlobalOnInfo } from './OnInfo';
+import { createIntervalFunction } from './parseInterval';
 import { init as initReactiveTasks, InitOptions as ReactiveTasksInitOptions } from './reactiveTasks';
 import { reset as withLockReset } from './withLock';
 export {
@@ -123,7 +124,26 @@ export async function init(options: InitOptions): Promise<void> {
     }
 }
 
+/**
+ * Validate the options that are pure configuration - no I/O, no side effects -
+ * BEFORE any sub-system is handed its one-shot config. A typo here would
+ * otherwise throw from deep inside initReactiveTasks, past the point where
+ * init() can still be retried, leaving `initPromise` pending forever and every
+ * task registration hanging silently.
+ */
+function validatePureOptions(options: InitOptions): void {
+    if (options.cronExpressionParserOptions?.endDate) {
+        throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
+    }
+    if (options.reactiveTaskCleanupInterval !== undefined) {
+        // Throws for a non-positive / unparsable interval.
+        createIntervalFunction(options.reactiveTaskCleanupInterval);
+    }
+}
+
 async function initInternal(options: InitOptions): Promise<void> {
+    validatePureOptions(options);
+
     // effective default handling is inside setters (or logic below)
     // Actually, secureWrap is handled in setters now.
     setGlobalOnError(options.onError || defaultOnError);
