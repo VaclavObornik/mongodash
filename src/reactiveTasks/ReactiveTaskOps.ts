@@ -1,6 +1,5 @@
 import * as _debug from 'debug';
 import { Document } from 'mongodb';
-import { defaultOnError, OnError } from '../OnError';
 import { compileWatchProjection } from './compileWatchProjection';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 
@@ -52,7 +51,6 @@ export class ReactiveTaskOps {
     constructor(
         private registry: ReactiveTaskRegistry,
         private onTaskPlanned: (tasksCollectionName: string, debounceMs: number) => void,
-        private onError: OnError = defaultOnError,
     ) {}
 
     private _forceDebounceMs?: number;
@@ -87,9 +85,8 @@ export class ReactiveTaskOps {
         // scan plan the same freshly-inserted (task, sourceDocId) concurrently,
         // one $merge collides with the unique index and throws E11000. That is a
         // benign race - the unique index preserved correctness and the task
-        // exists - so retry (the colliding doc now takes the whenMatched path)
-        // and, if it persists, swallow rather than fail the flush (which would
-        // force a leader re-election / planner flapping).
+        // exists - so retry: the colliding document now takes the whenMatched
+        // path, which is a no-op when nothing changed.
         const maxAttempts = 3;
         for (let attempt = 1; ; attempt++) {
             try {
@@ -104,16 +101,17 @@ export class ReactiveTaskOps {
                     }
                     // Persisting past the retries is no longer "benign" in any
                     // useful sense: $merge is not atomic across documents, so an
-                    // abort can leave part of the batch unwritten while the
-                    // caller advances its resume token / checkpoint. Surface it
-                    // instead of leaving only a debug line.
-                    this.onError(
-                        new Error(
-                            `ReactiveTasks: planning for '${collectionName}' still hit a duplicate key after ${attempt} attempts; ` +
-                                `some tasks in this batch may not have been planned. Original: ${(error as Error)?.message}`,
-                        ),
+                    // abort can leave part of the batch unwritten. Swallowing it
+                    // would let the caller advance its resume token / checkpoint
+                    // past documents that were never planned - silent loss that
+                    // only a later full reconcile could heal. Fail the flush
+                    // instead: the token stays put and the batch is replayed.
+                    // The flapping this could cause is bounded, since getting
+                    // here needs `maxAttempts` consecutive collisions.
+                    throw new Error(
+                        `ReactiveTasks: planning for '${collectionName}' still hit a duplicate key after ${attempt} attempts; ` +
+                            `not all tasks in this batch could be planned. Original: ${(error as Error)?.message}`,
                     );
-                    break;
                 }
                 debug(`Error executing pipeline for ${collectionName}: `, error);
                 throw error;
