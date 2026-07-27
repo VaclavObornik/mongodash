@@ -316,18 +316,19 @@ export class ReactiveTaskScheduler {
             },
             {
                 onBecomeLeader: async () => {
+                    // Counted on acquisition, not after a successful start: the
+                    // metric measures how often this instance took leadership,
+                    // and its whole purpose is to expose flapping. A start that
+                    // throws releases the lock and hands over - counting only
+                    // successful starts would hide exactly that churn.
+                    this.metricsCollector?.recordLeaderElection();
                     const tasks = this.registry.getAllTasks();
                     if (tasks.length === 0) {
                         debug(`[Scheduler ${this.instanceId}] Became leader, but no tasks registered. Skipping planner start.`);
-                        this.metricsCollector?.recordLeaderElection();
                         return;
                     }
                     debug(`[Scheduler ${this.instanceId}] Became leader, starting planner.`);
                     await this.taskPlanner?.start();
-                    // Counted only once leadership is actually effective: a start
-                    // that throws releases the lock and steps down, so counting it
-                    // as an election would inflate the flapping signal.
-                    this.metricsCollector?.recordLeaderElection();
                 },
                 onLoseLeader: async () => {
                     debug(`[Scheduler ${this.instanceId}] Lost leader, stopping planner.`);

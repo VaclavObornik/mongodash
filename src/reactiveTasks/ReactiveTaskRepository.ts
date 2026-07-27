@@ -78,7 +78,12 @@ export class ReactiveTaskRepository<T extends Document> {
                             $switch: {
                                 branches: [
                                     { case: { $in: ['$status', ['completed', 'failed']] }, then: null },
-                                    { case: { $eq: ['$status', 'processing'] }, then: { $ifNull: ['$lockExpiresAt', '$scheduledAt'] } },
+                                    // Both in-flight states keep the old visibility
+                                    // deadline: during a mixed rolling upgrade a
+                                    // pre-2.3.1 worker may still own the record, and
+                                    // a past nextRunAt would let a 2.9.0 worker claim
+                                    // it immediately and run it twice.
+                                    { case: { $in: ['$status', ['processing', 'processing_dirty']] }, then: { $ifNull: ['$lockExpiresAt', '$scheduledAt'] } },
                                 ],
                                 default: '$scheduledAt',
                             },

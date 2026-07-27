@@ -27,6 +27,9 @@ export async function init(options: InitOptions): Promise<void> {
     if (mongoClientInstance && clientIsSelfCreated) {
         const previous = mongoClientInstance;
         clientIsSelfCreated = false;
+        // Unset BEFORE closing: otherwise getMongoClient() hands out a client
+        // that is being torn down if anything calls it during the retry.
+        mongoClientInstance = undefined as unknown as MongoClient;
         await previous.close().catch(() => undefined);
     }
 
