@@ -28,6 +28,7 @@ const debug = _debug('mongodash:reactiveTasks');
 // Re-export types for backward compatibility
 export {
     CODE_REACTIVE_TASK_CLEANUP,
+    CODE_REACTIVE_TASK_DEFER_IGNORED,
     CODE_REACTIVE_TASK_FAILED,
     CODE_REACTIVE_TASK_FINISHED,
     CODE_REACTIVE_TASK_INITIALIZED,
@@ -39,6 +40,7 @@ export {
     CODE_REACTIVE_TASK_PLANNER_STOPPED,
     CODE_REACTIVE_TASK_PLANNER_STREAM_ERROR,
     CODE_REACTIVE_TASK_STARTED,
+    CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION,
     PagedResult,
     PaginationOptions,
     ReactiveTask,
@@ -314,14 +316,18 @@ export class ReactiveTaskScheduler {
             },
             {
                 onBecomeLeader: async () => {
-                    this.metricsCollector?.recordLeaderElection();
                     const tasks = this.registry.getAllTasks();
                     if (tasks.length === 0) {
                         debug(`[Scheduler ${this.instanceId}] Became leader, but no tasks registered. Skipping planner start.`);
+                        this.metricsCollector?.recordLeaderElection();
                         return;
                     }
                     debug(`[Scheduler ${this.instanceId}] Became leader, starting planner.`);
                     await this.taskPlanner?.start();
+                    // Counted only once leadership is actually effective: a start
+                    // that throws releases the lock and steps down, so counting it
+                    // as an election would inflate the flapping signal.
+                    this.metricsCollector?.recordLeaderElection();
                 },
                 onLoseLeader: async () => {
                     debug(`[Scheduler ${this.instanceId}] Lost leader, stopping planner.`);

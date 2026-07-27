@@ -185,17 +185,19 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
     return createIntervalFunction(interval, { cronOptions: state.cronExpressionParserOptions });
 }
 
-// Smallest gap enforced between "now" and a computed next run. A dynamic
-// interval that yields a past/now date would otherwise be perpetually due
-// and, together with the post-run speedUp(), busy-loop a worker.
+// Gap applied when a computed next run is not in the future. Such a date would
+// be perpetually due and, together with the post-run speedUp(), busy-loop a
+// worker. Only the non-future case is adjusted: a legitimately near occurrence
+// (e.g. a per-second CRON finishing late in the second) must not be pushed out,
+// which would make it drift.
 const minNextRunMs = 200;
 
 async function getNextRunDate(intervalFunction: IntervalFunction): Promise<Date> {
     const maybeDate: StaticInterval = await intervalFunction();
     const next = maybeDate instanceof Date ? maybeDate : createIntervalFunctionFromScalar(maybeDate)();
 
-    const floor = Date.now() + minNextRunMs;
-    return next.getTime() < floor ? new Date(floor) : next;
+    const now = Date.now();
+    return next.getTime() <= now ? new Date(now + minNextRunMs) : next;
 }
 
 export async function runCronTask(taskId: TaskId): Promise<void> {

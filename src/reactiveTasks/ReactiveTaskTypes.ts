@@ -386,6 +386,10 @@ export const CODE_REACTIVE_TASK_STARTED = 'reactiveTaskStarted';
 export const CODE_REACTIVE_TASK_FINISHED = 'reactiveTaskFinished';
 export const CODE_REACTIVE_TASK_FAILED = 'reactiveTaskFailed';
 export const CODE_REACTIVE_TASK_LOCK_LOST = 'reactiveTaskLockLost';
+/** The handler threw after it had already durably completed the task via `markCompleted()`. */
+export const CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION = 'reactiveTaskThrewAfterCompletion';
+/** `deferCurrent()` was called after `markCompleted()`; the defer is ignored. */
+export const CODE_REACTIVE_TASK_DEFER_IGNORED = 'reactiveTaskDeferIgnored';
 
 export const CODE_REACTIVE_TASK_PLANNER_STARTED = 'reactiveTaskPlannerStarted';
 export const CODE_REACTIVE_TASK_PLANNER_STOPPED = 'reactiveTaskPlannerStopped';
