@@ -192,9 +192,30 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
 // which would make it drift.
 const minNextRunMs = 200;
 
-async function getNextRunDate(intervalFunction: IntervalFunction): Promise<Date> {
+/**
+ * @param recoverFromInvalid When the interval function returns something
+ * unusable, report it and back off instead of throwing. Used for the RESCHEDULE
+ * after a run: throwing there would abandon the write that follows, leaving the
+ * task on its stale past `runSince` so it re-executes on every lock expiry,
+ * forever. At registration the default (throw) applies, so a broken interval
+ * still fails fast.
+ */
+async function getNextRunDate(intervalFunction: IntervalFunction, { recoverFromInvalid = false } = {}): Promise<Date> {
     const maybeDate: StaticInterval = await intervalFunction();
-    const next = maybeDate instanceof Date ? maybeDate : createIntervalFunctionFromScalar(maybeDate)();
+
+    let next: Date;
+    if (maybeDate instanceof Date) {
+        next = maybeDate;
+    } else if (!recoverFromInvalid) {
+        next = createIntervalFunctionFromScalar(maybeDate)();
+    } else {
+        try {
+            next = createIntervalFunctionFromScalar(maybeDate)();
+        } catch (err) {
+            onError(err as Error);
+            next = new Date(Date.now() + noTaskWaitTime);
+        }
+    }
 
     const now = Date.now();
     return next.getTime() <= now ? new Date(now + minNextRunMs) : next;
@@ -348,7 +369,9 @@ async function processTask(task: Task, enforcedTask: EnforcedTask | null) {
         try {
             await stopContinuousLock(); // to avoid possibility of lock after the following document update
 
-            nextRunDate = await getNextRunDate(task.intervalFunction);
+            // Reschedule path: never throw here (see getNextRunDate) - the write
+            // below must happen or the task re-runs on every lock expiry.
+            nextRunDate = await getNextRunDate(task.intervalFunction, { recoverFromInvalid: true });
             debug(`scheduling task ${task.taskId} to run in ${nextRunDate.getTime() - Date.now()} ms`);
 
             await state.collection.updateOne(
