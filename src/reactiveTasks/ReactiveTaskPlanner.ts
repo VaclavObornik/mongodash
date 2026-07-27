@@ -84,7 +84,7 @@ export class ReactiveTaskPlanner {
         private onInfo: OnInfo = defaultOnInfo,
         private onError: OnError = defaultOnError,
     ) {
-        this.ops = new ReactiveTaskOps(registry, callbacks.onTaskPlanned);
+        this.ops = new ReactiveTaskOps(registry, callbacks.onTaskPlanned, onError);
         this.reconciler = new ReactiveTaskReconciler(instanceId, globalsCollection, registry, this.ops, onInfo, internalOptions, onError);
     }
 
@@ -98,6 +98,7 @@ export class ReactiveTaskPlanner {
     }
 
     public async start(): Promise<void> {
+        this.stopRequested = false;
         this.onInfo({
             message: `Reactive task planner started.`,
             code: CODE_REACTIVE_TASK_PLANNER_STARTED,
@@ -108,6 +109,14 @@ export class ReactiveTaskPlanner {
 
         // 1. Check for schema/logic evolution (Filter changes, Version upgrades)
         await this.checkEvolutionStrategies();
+
+        // A stop() that arrives while the (potentially long) steps above are
+        // running must not be overtaken by this start: opening the stream now
+        // would leave it live after shutdown, with nothing left to close it.
+        if (this.stopRequested) {
+            debug(`[Scheduler ${this.instanceId}] Planner start aborted - stop requested during startup.`);
+            return;
+        }
 
         // 2. Start stream first to ensure we don't miss events during reconciliation
         // We capture the time AFTER starting to ensure overlap with the stream.
@@ -121,6 +130,7 @@ export class ReactiveTaskPlanner {
     }
 
     public async stop(): Promise<void> {
+        this.stopRequested = true;
         await this.stopChangeStream();
         this.onInfo({
             message: `Reactive task planner stopped.`,
@@ -159,6 +169,8 @@ export class ReactiveTaskPlanner {
     }
 
     private isStopping = false;
+    /** Set by stop(); lets the long leader-startup steps bail out early. */
+    private stopRequested = false;
 
     private async startChangeStream(): Promise<void> {
         if (this.changeStream) {
@@ -264,16 +276,26 @@ export class ReactiveTaskPlanner {
         const collectionFilters = this.registry.getAllTasks().reduce((acc, taskDef) => {
             const collectionName = taskDef.sourceCollection.collectionName;
             if (!acc.has(collectionName)) {
-                // Delete events never carry `fullDocument`, so a positive filter
-                // like { $eq: ['$fullDocument.status', 'active'] } evaluates false
-                // and the delete is dropped server-side - breaking real-time
-                // cleanup. Always let deletes on a watched collection through;
-                // processDeletions then applies the cleanupPolicy.
-                acc.set(collectionName, { 'ns.coll': collectionName, $or: [{ operationType: 'delete' }] });
+                acc.set(collectionName, { 'ns.coll': collectionName, $or: [] });
             }
             acc.get(collectionName)!.$or.push(prefixFilterKeys({ $expr: taskDef.filter || {} }, 'fullDocument'));
             return acc;
         }, new Map<string, Document>());
+
+        // Delete events never carry `fullDocument`, so a positive filter like
+        // { $eq: ['$fullDocument.status', 'active'] } evaluates false and the
+        // delete is dropped server-side - breaking real-time cleanup. Let
+        // deletes through, but only for collections that actually act on them:
+        // when every task there uses cleanupPolicy.deleteWhen 'never', matching
+        // deletes would just stream events that processDeletions discards.
+        for (const taskDef of this.registry.getAllTasks()) {
+            const collectionName = taskDef.sourceCollection.collectionName;
+            const filter = collectionFilters.get(collectionName)!;
+            // Absent policy means the default ('sourceDocumentDeleted'), so deletes are needed.
+            if (taskDef.cleanupPolicyParsed?.deleteWhen !== 'never' && !filter.$or.some((c: Document) => c.operationType === 'delete')) {
+                filter.$or.push({ operationType: 'delete' });
+            }
+        }
 
         const pipeline = [
             {
@@ -322,7 +344,7 @@ export class ReactiveTaskPlanner {
         // pattern, e.g. a shared primary key) into one batch entry, silently
         // dropping one document's planning.
         const collectionName = change.ns?.coll ?? '';
-        const docId = `${collectionName} ${EJSON.stringify(change.documentKey._id, { relaxed: false })}`;
+        const docId = `${collectionName}\u0000${EJSON.stringify(change.documentKey._id, { relaxed: false })}`;
         this.taskBatch.set(docId, change);
         this.taskBatchLastResumeToken = change._id;
 
@@ -589,6 +611,13 @@ export class ReactiveTaskPlanner {
 
             let migrated = 0;
             for (const entry of this.registry.getAllEntries()) {
+                // A single updateMany cannot be interrupted, but a shutdown
+                // should not have to wait for every remaining collection. The
+                // marker is left unset so the next leader start resumes.
+                if (this.stopRequested) {
+                    debug(`[Scheduler ${this.instanceId}] Legacy migration interrupted by stop; will resume on next leader start.`);
+                    return;
+                }
                 migrated += await entry.repository.migrateLegacyScheduledFields();
             }
 
