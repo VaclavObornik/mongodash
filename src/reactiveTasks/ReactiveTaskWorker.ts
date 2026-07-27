@@ -301,7 +301,18 @@ export class ReactiveTaskWorker {
 
                 debug(`[Scheduler ${this.instanceId}] Deferring task '${taskRecord.task}' until ${deferredTo.toISOString()}`);
                 const entry = this.registry.getEntry(tasksCollection.collectionName);
-                await entry.repository.deferTask(taskRecord, deferredTo);
+                const deferred = await entry.repository.deferTask(taskRecord, deferredTo);
+                if (!deferred) {
+                    // Same silent lock loss the finalize path reports: the CAS
+                    // refused because another worker owns the record now, so the
+                    // caller's deferCurrent() did not take effect.
+                    this.metricsCollector?.recordLockLost(taskRecord.task);
+                    onInfo({
+                        message: `Reactive task '${taskRecord.task}' defer skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
+                        taskId: taskRecord._id.toString(),
+                        code: CODE_REACTIVE_TASK_LOCK_LOST,
+                    });
+                }
                 return;
             }
 

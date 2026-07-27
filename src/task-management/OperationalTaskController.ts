@@ -22,6 +22,11 @@ export class OperationalTaskController {
     }) {
         const query: ReactiveTaskQuery<Document> = {};
 
+        // Resolved once so the empty short-circuit below and the real query
+        // cannot drift apart (and so `limit: 0` is not silently turned into 50).
+        const limit = Number(params.limit ?? 50);
+        const skip = Number(params.skip ?? 0);
+
         if (params.task) {
             query.task = params.task;
         } else if (params.collection) {
@@ -35,8 +40,8 @@ export class OperationalTaskController {
                 return {
                     items: [],
                     total: 0,
-                    limit: Number(params.limit || 50),
-                    offset: Number(params.skip || 0),
+                    limit,
+                    offset: skip,
                     stats: { statuses: [], errorCount: 0 },
                 };
             }
@@ -66,8 +71,8 @@ export class OperationalTaskController {
 
         const [result, stats] = await Promise.all([
             this.scheduler.getTaskManager().getTasks(query, {
-                limit: Number(params.limit || 50),
-                skip: Number(params.skip || 0),
+                limit,
+                skip,
                 sort: { field: 'nextRunAt', direction: 1 },
             }),
             this.scheduler.getTaskManager().getTaskStats(statsQuery),
