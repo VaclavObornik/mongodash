@@ -53,7 +53,7 @@ The system exposes the following metrics with standardized labels:
 
 | Metric Name | Type | Labels | Description |
 | :--- | :--- | :--- | :--- |
-| `reactive_tasks_duration_seconds` | Histogram | `task_name`, `status` | Distribution of task processing time (success/failure). |
+| `reactive_tasks_duration_seconds` | Histogram | `task_name`, `status` | Distribution of task processing time (success/failure). One execution can contribute both a `success` and a `failed` sample in a single case: `markCompleted({ session })` records the success when it runs, and if the surrounding transaction then aborts, the retry path records the failure. |
 | `reactive_tasks_retries_total` | Counter | `task_name` | Total number of retries attempted. |
 | `reactive_tasks_queue_depth` | Gauge | `task_name`, `status` | Current number of tasks in the queue, grouped by status (`pending`, `processing`, `processing_dirty`, `failed`). |
 | `reactive_tasks_global_lag_seconds` | Gauge | `task_name` | Age of the oldest `pending` task, measured from `dueAt`. This ensures deferred tasks still reflect their true waiting time. |
