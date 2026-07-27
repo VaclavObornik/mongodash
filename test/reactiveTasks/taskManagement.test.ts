@@ -92,6 +92,14 @@ describe('Reactive Task Management', function () {
     });
 
     describe('B. Concurrency & Safety', () => {
+        beforeEach(async () => {
+            await API.stopReactiveTasks();
+        });
+
+        afterEach(async () => {
+            await API.startReactiveTasks();
+        });
+
         it('should mark processing task as processing_dirty when retried', async () => {
             const db = API.getMongoClient().db();
             const sourceDocId = (await db.collection(sourceCollectionName).insertOne({})).insertedId;
