@@ -103,6 +103,9 @@ export class ReactiveTaskPlanner {
             code: CODE_REACTIVE_TASK_PLANNER_STARTED,
         });
 
+        // 0. Heal records written by pre-2.3.1 versions before anything polls.
+        await this.migrateLegacyTaskRecords();
+
         // 1. Check for schema/logic evolution (Filter changes, Version upgrades)
         await this.checkEvolutionStrategies();
 
@@ -558,6 +561,48 @@ export class ReactiveTaskPlanner {
                 error: error.message,
             });
             this.callbacks.onStreamError();
+        }
+    }
+
+    /**
+     * One-time, cluster-wide migration of records written before 2.3.1
+     * (`scheduledAt`/`initialScheduledAt` -> `nextRunAt`/`dueAt`); see
+     * ReactiveTaskRepository.migrateLegacyScheduledFields for the mapping.
+     *
+     * Gated on a marker in the meta doc because the matching query
+     * (`nextRunAt: { $exists: false }`) is the complement of the partial
+     * `polling_idx` and therefore always a collection scan. Running it here -
+     * on the leader, once - keeps it off every instance's startup path, where
+     * it would also block task registration via the repository initPromise.
+     *
+     * The marker is written only after every collection succeeded, so a failure
+     * simply retries on the next leader start. Best-effort: a failure is
+     * reported and must not stop the planner (legacy records stay invisible,
+     * exactly as before this migration existed).
+     */
+    private async migrateLegacyTaskRecords(): Promise<void> {
+        try {
+            const metaDoc = (await this.globalsCollection.findOne({ _id: this.metaDocId })) as MetaDocument | null;
+            if (metaDoc?.legacyScheduledAtMigratedAt) {
+                return;
+            }
+
+            let migrated = 0;
+            for (const entry of this.registry.getAllEntries()) {
+                migrated += await entry.repository.migrateLegacyScheduledFields();
+            }
+
+            await this.globalsCollection.updateOne({ _id: this.metaDocId }, { $set: { legacyScheduledAtMigratedAt: new Date() } }, { upsert: true });
+
+            if (migrated > 0) {
+                this.onInfo({
+                    message: `Migrated ${migrated} legacy reactive task record(s) from 'scheduledAt' to 'nextRunAt'.`,
+                    code: CODE_REACTIVE_TASK_PLANNER_STARTED,
+                    migrated,
+                });
+            }
+        } catch (error) {
+            this.onError(error as Error);
         }
     }
 

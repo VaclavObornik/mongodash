@@ -37,7 +37,6 @@ export class ReactiveTaskRepository<T extends Document> {
 
     private async init(): Promise<void> {
         await this.ensureIndexes();
-        await this.migrateLegacyScheduledFields();
     }
 
     /**
@@ -46,25 +45,51 @@ export class ReactiveTaskRepository<T extends Document> {
      * to `nextRunAt` / `dueAt`. Records written by those versions have no
      * `nextRunAt`, so the polling query (`nextRunAt: { $type: 'date' }`) and its
      * partial index never see them and their tasks would silently never run
-     * again. This one-time, idempotent migration heals such records on startup.
+     * again. This idempotent migration heals such records.
+     *
+     * The mapping is status-aware, because the two schemas encode "not
+     * runnable" differently. Pre-2.3.1 finalize LEFT a past `scheduledAt` on
+     * completed / terminally-failed records and the old polling query excluded
+     * them with `status: { $in: ['pending', 'processing_dirty'] }`. The current
+     * query has no status filter and relies on `nextRunAt: null` instead, so
+     * copying `scheduledAt` verbatim would make every historical record due and
+     * re-execute its handler:
+     * - completed / failed -> `null` (stay out of the polling index)
+     * - processing         -> the old visibility deadline (`lockExpiresAt`), so
+     *                         zombie recovery keeps working
+     * - pending / dirty    -> `scheduledAt` (unchanged semantics)
      *
      * `dueAt` is derived as `initialScheduledAt ?? scheduledAt`, mirroring the
      * pre-2.3.1 baseline (`initialScheduledAt` was only written on defer/retry),
      * so global-lag stays correct for legacy records that never deferred.
      *
-     * Best-effort: a transient failure is reported but must not block task
-     * registration (the awaited initPromise). Runs once per process; matches
-     * nothing (a cheap no-op) on databases that never used the legacy fields.
+     * Returns the number of migrated records. Orchestrated once per cluster by
+     * the planner (leader) - see ReactiveTaskPlanner.migrateLegacyTaskRecords -
+     * because the matching query cannot use `polling_idx` and would otherwise
+     * be a collection scan on every startup of every instance.
      */
-    private async migrateLegacyScheduledFields(): Promise<void> {
-        try {
-            await this.tasksCollection.updateMany({ nextRunAt: { $exists: false }, scheduledAt: { $exists: true } } as Filter<ReactiveTaskRecord<T>>, [
-                { $set: { nextRunAt: '$scheduledAt', dueAt: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] } } },
-                { $unset: ['scheduledAt', 'initialScheduledAt'] },
-            ]);
-        } catch (err) {
-            this.onError(err as Error);
-        }
+    public async migrateLegacyScheduledFields(): Promise<number> {
+        const result = await this.tasksCollection.updateMany(
+            { nextRunAt: { $exists: false }, scheduledAt: { $exists: true } } as Filter<ReactiveTaskRecord<T>>,
+            [
+                {
+                    $set: {
+                        nextRunAt: {
+                            $switch: {
+                                branches: [
+                                    { case: { $in: ['$status', ['completed', 'failed']] }, then: null },
+                                    { case: { $eq: ['$status', 'processing'] }, then: { $ifNull: ['$lockExpiresAt', '$scheduledAt'] } },
+                                ],
+                                default: '$scheduledAt',
+                            },
+                        },
+                        dueAt: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] },
+                    },
+                },
+                { $unset: ['scheduledAt', 'initialScheduledAt', 'lockExpiresAt'] },
+            ],
+        );
+        return result.modifiedCount;
     }
 
     public async findAndLockNextTask(taskDefs: ReactiveTaskInternal<T>[], options: { visibilityTimeoutMs: number }): Promise<ReactiveTaskRecord<T> | null> {
