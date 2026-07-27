@@ -24,8 +24,18 @@ export async function init(options: InitOptions): Promise<void> {
         }
         mongoClientInstance = options.mongoClient;
     } else if ('uri' in options) {
-        mongoClientInstance = new MongoClient(options.uri, options.clientOptions);
-        await mongoClientInstance.connect();
+        const client = new MongoClient(options.uri, options.clientOptions);
+        try {
+            await client.connect();
+        } catch (err) {
+            // init() is retryable (e.g. the app started before MongoDB was
+            // reachable). Close the half-open client so a retry does not leave
+            // its topology monitoring running, and leave the module-level
+            // instance unset so getMongoClient() keeps reporting "not inited".
+            await client.close().catch(() => undefined);
+            throw err;
+        }
+        mongoClientInstance = client;
     } else {
         throw new Error('The `mongoClient` or the connection `uri` parameter has to be specified.');
     }

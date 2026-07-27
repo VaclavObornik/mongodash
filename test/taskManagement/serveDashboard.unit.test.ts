@@ -321,11 +321,12 @@ describe('serveDashboard Integration Tests', () => {
     });
 
     describe('Request body limit', () => {
-        it('rejects an oversized POST body with 500 and destroys the socket', async () => {
+        it('rejects an oversized POST body with 413 and stops reading without tearing the socket', async () => {
             const scheduler = (API as any)._scheduler;
             req.method = 'POST';
             req.url = '/api/reactive/retry';
             (req as any).destroy = jest.fn();
+            (req as any).pause = jest.fn();
             const on = req.on as jest.Mock;
 
             const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
@@ -336,8 +337,11 @@ describe('serveDashboard Integration Tests', () => {
             const handled = await promise;
 
             expect(handled).toBe(true);
-            expect(res.statusCode).toBe(500);
-            expect((req as any).destroy).toHaveBeenCalled();
+            expect(res.statusCode).toBe(413);
+            // Stops consuming the body, but must NOT destroy the socket before
+            // the response is written.
+            expect((req as any).pause).toHaveBeenCalled();
+            expect((req as any).destroy).not.toHaveBeenCalled();
         });
     });
 });

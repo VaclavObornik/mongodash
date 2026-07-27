@@ -318,7 +318,15 @@ export class ReactiveTaskWorker {
                 return;
             }
 
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
+            // Record eagerly - as the success path does - so a scrape landing
+            // between the handler returning and the CAS below is not misled.
+            // The exception is a handler that already called markCompleted():
+            // that recorded a success, and whether this throw is really a
+            // failure depends on whether the completion survived (an aborted
+            // transaction rolls it back). Decided after the CAS instead.
+            if (!isManuallyFinalized) {
+                this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
+            }
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
 
@@ -331,19 +339,42 @@ export class ReactiveTaskWorker {
                 taskDef.executionHistoryLimit,
             );
 
-            if (!finalized) {
-                // Silent lock loss (startedAt no longer matches): another
-                // worker has re-claimed the task. The failure metric is
-                // kept (the handler did throw) but we surface lock-lost
-                // so operators can see why retry scheduling / dead-letter
-                // transitions did not persist.
-                this.metricsCollector?.recordLockLost(taskRecord.task);
-                onInfo({
-                    message: `Reactive task '${taskRecord.task}' error-finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
-                    taskId: taskRecord._id.toString(),
-                    code: CODE_REACTIVE_TASK_LOCK_LOST,
-                });
+            if (finalized) {
+                if (isManuallyFinalized) {
+                    // The record was still in-flight, so the manual completion
+                    // did not survive (the canonical case: markCompleted() ran
+                    // inside a transaction that then aborted). This is a real
+                    // failed execution and has just been scheduled for retry.
+                    this.metricsCollector?.recordTaskExecution(taskRecord.task, 'failed', duration);
+                }
+                return;
             }
+
+            if (isManuallyFinalized) {
+                // The completion is durable (the status CAS refused to revert a
+                // record that is no longer processing) and the handler threw
+                // afterwards. Nothing was stolen, so reporting lock-lost would
+                // be wrong, and the success metric already stands. The throw
+                // itself has already reached onError.
+                onInfo({
+                    message: `Reactive task '${taskRecord.task}' threw after markCompleted(); the task stays completed and is not retried.`,
+                    taskId: taskRecord._id.toString(),
+                    code: 'reactiveTaskThrewAfterCompletion',
+                    reason: error instanceof Error ? error.message : `${error}`,
+                });
+                return;
+            }
+
+            // Silent lock loss (startedAt no longer matches): another worker has
+            // re-claimed the task. The failure metric is kept (the handler did
+            // throw) but we surface lock-lost so operators can see why retry
+            // scheduling / dead-letter transitions did not persist.
+            this.metricsCollector?.recordLockLost(taskRecord.task);
+            onInfo({
+                message: `Reactive task '${taskRecord.task}' error-finalize skipped - lock lost (startedAt mismatch). Another worker is handling this task.`,
+                taskId: taskRecord._id.toString(),
+                code: CODE_REACTIVE_TASK_LOCK_LOST,
+            });
         }
     }
 }
