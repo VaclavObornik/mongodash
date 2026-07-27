@@ -100,6 +100,8 @@ export class ReactiveTaskWorker {
 
         let isManuallyFinalized = false;
         let lockLost = false;
+        /** Duration of a transactional markCompleted() whose success sample is not recorded yet. */
+        let pendingSuccessSample: number | null = null;
         // Set by the outer flow once the continuous-lock is stopped; used by
         // markCompleted below so we can halt renewal *before* the finalize
         // write changes nextRunAt. Without this the next CAS renewal would
@@ -121,7 +123,16 @@ export class ReactiveTaskWorker {
             // not misled. The finalize CAS below is a second line of defence
             // against a stolen lock; if it fires we surface lock-lost but
             // keep the duration sample (the handler did run successfully).
-            this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
+            //
+            // Exception: inside a transaction the completion is not durable yet.
+            // If the transaction later aborts, the error path records a failure
+            // for the same execution - so hold the sample until the handler has
+            // returned (i.e. the transaction committed) and record it there.
+            if (session) {
+                pendingSuccessSample = duration;
+            } else {
+                this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', duration);
+            }
 
             const entry = this.registry.getEntry(tasksCollection.collectionName);
             const finalized = await entry.repository.finalizeTask(
@@ -318,6 +329,11 @@ export class ReactiveTaskWorker {
 
             if (!isManuallyFinalized) {
                 await finalizeTaskSuccess(duration);
+            } else if (pendingSuccessSample !== null) {
+                // The handler returned normally, so a transactional
+                // markCompleted() did commit: the deferred sample is now real.
+                this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', pendingSuccessSample);
+                pendingSuccessSample = null;
             }
         } catch (error) {
             // Logging is already done in processTheTask via onInfo

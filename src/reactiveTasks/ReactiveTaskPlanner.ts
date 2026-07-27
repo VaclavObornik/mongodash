@@ -274,9 +274,14 @@ export class ReactiveTaskPlanner {
         if (this.changeStream) {
             this.isStopping = true;
             debug(`[Scheduler ${this.instanceId}] Stopping Change Stream...`);
-            await this.changeStream.close();
-            this.changeStream = null;
-            this.isStopping = false;
+            try {
+                await this.changeStream.close();
+            } finally {
+                // Must clear even if close() throws: a stuck isStopping would
+                // silently suppress the 'close' handler's restart signal.
+                this.changeStream = null;
+                this.isStopping = false;
+            }
         }
         await this.flushTaskBatch();
     }
@@ -573,8 +578,24 @@ export class ReactiveTaskPlanner {
                     code: CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
                 });
 
+                // Recovery must respect a shutdown just like start() does -
+                // otherwise a stop() racing this branch is overtaken and we
+                // reopen a stream (and keep reconciling) after the planner was
+                // torn down, with nothing left to close it.
+                if (this.stopRequested) {
+                    debug(`[Scheduler ${this.instanceId}] Oplog-loss recovery aborted - stop requested.`);
+                    return;
+                }
+
                 // Start stream first to capture new events
                 await this.startChangeStream();
+
+                if (this.stopRequested) {
+                    debug(`[Scheduler ${this.instanceId}] Stop requested while reopening the stream during oplog-loss recovery; closing it again.`);
+                    await this.stopChangeStream();
+                    return;
+                }
+
                 const currentStream = this.changeStream;
                 if (currentStream) {
                     await this.reconciler.reconcile(() => this.changeStream !== currentStream || this.changeStream === null);

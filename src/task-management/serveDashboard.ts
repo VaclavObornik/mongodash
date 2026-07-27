@@ -214,9 +214,14 @@ function pipeFile(res: ServerResponse, filePath: string): boolean {
     // stream (EMFILE, file removed after statSync, EACCES) would otherwise throw
     // an uncaughtException and crash the whole process.
     stream.on('error', () => {
-        if (!res.headersSent) {
-            res.statusCode = 500;
+        if (res.headersSent) {
+            // Part of the body is already on the wire; ending cleanly here would
+            // present a truncated file as a complete one. Destroy so the client
+            // sees the transfer fail.
+            res.destroy();
+            return;
         }
+        res.statusCode = 500;
         res.end();
     });
     stream.pipe(res);
