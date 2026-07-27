@@ -182,10 +182,15 @@ describe('Reactive Task Transactions', () => {
         // Wait for the task to settle on either 'completed' or 'failed' -
         // stopping early on 'failed' surfaces regressions with a clear
         // assertion instead of a 15s timeout.
+        //
+        // The success branch also waits for the handler to actually return:
+        // markCompleted() writes 'completed' BEFORE the handler increments
+        // handlerCompletions, so polling on status alone can observe the write
+        // first and read a stale 0 below (an intermittent CI failure).
         await waitUntil(
             async () => {
                 const doc = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
-                return doc?.status === 'completed' || doc?.status === 'failed';
+                return doc?.status === 'failed' || (doc?.status === 'completed' && handlerCompletions > 0);
             },
             { timeoutMs: 15000, pollIntervalMs: 100 },
         );

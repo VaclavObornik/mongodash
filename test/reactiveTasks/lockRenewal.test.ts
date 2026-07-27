@@ -65,5 +65,9 @@ describe('Reactive Task - Lock Renewal', () => {
         // Current buggy implementation: Updates lockExpiresAt, ignores nextRunAt.
         // So nextRunAt will be INITIAL value.
         // Failed expectation: currentNextRunAt > startNextRunAt
-    });
+        // Explicit timeout: startReactiveTasks() (leader election + planner start
+        // + reconcile) plus the 500ms handler and the polls above can exceed
+        // Jest's 5s default on a loaded CI runner - the cause of this test's
+        // long-standing intermittent failures.
+    }, 30000);
 });
