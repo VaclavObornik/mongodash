@@ -1,3 +1,4 @@
+import { waitUntil } from '../../src/testing';
 import { createReusableWaitableStub, getNewInstance, wait } from '../testHelpers';
 
 describe('Reactive Task - Lock Renewal', () => {
@@ -51,8 +52,17 @@ describe('Reactive Task - Lock Renewal', () => {
         expect(initialTask).toBeDefined();
         const startNextRunAt = initialTask!.nextRunAt!.getTime();
 
-        // Wait 100ms (should have triggered ~2 updates)
-        await wait(150);
+        // Renewal fires every visibilityTimeoutMs/5 (40ms here). Poll for the
+        // lock to move rather than sleeping a fixed 150ms and hoping a renewal
+        // landed - on a loaded runner it may not have, which is what made this
+        // test intermittently fail.
+        await waitUntil(
+            async () => {
+                const doc = await tasksCol.findOne({ sourceDocId: 'doc1' as any });
+                return (doc?.nextRunAt?.getTime() ?? 0) > startNextRunAt;
+            },
+            { timeoutMs: 10000, pollIntervalMs: 20 },
+        );
 
         const updatedTask = await tasksCol.findOne({ sourceDocId: 'doc1' as any });
         const currentNextRunAt = updatedTask!.nextRunAt!.getTime();
