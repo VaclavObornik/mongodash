@@ -13,4 +13,32 @@ describe('mongodash', () => {
             await instance.cleanUpInstance();
         }
     });
+
+    it('should allow init to be retried after it failed to connect', async () => {
+        // A common startup race: the app container comes up before MongoDB is
+        // reachable. The failed attempt must not consume the one-shot init
+        // guard, otherwise the app can never recover without a restart and
+        // every awaiter of initPromise hangs forever.
+        const instance = getNewInstance();
+
+        try {
+            // Unroutable address so connect() fails fast rather than hanging.
+            await assert.rejects(() =>
+                instance.mongodash.init({
+                    uri: 'mongodb://127.0.0.1:1/mongodashRetryTest',
+                    clientOptions: { serverSelectionTimeoutMS: 300 },
+                } as never),
+            );
+
+            // The retry must NOT be refused with "can be called only once".
+            await instance.initInstance();
+
+            // And the instance is genuinely usable afterwards.
+            const collection = instance.mongodash.getCollection('init_retry_probe');
+            await collection.insertOne({ _id: 'ok' } as never);
+            expect(await collection.countDocuments({ _id: 'ok' } as never)).toBe(1);
+        } finally {
+            await instance.cleanUpInstance();
+        }
+    }, 20000);
 });
