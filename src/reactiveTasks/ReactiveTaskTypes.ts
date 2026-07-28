@@ -395,6 +395,16 @@ export const CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION = 'reactiveTaskThrewAfter
 /** `deferCurrent()` was called after `markCompleted()`; the defer is ignored. */
 export const CODE_REACTIVE_TASK_DEFER_IGNORED = 'reactiveTaskDeferIgnored';
 
+/**
+ * Detects the driver's client-already-closed error without referencing the
+ * MongoClientClosedError class: it does not exist on driver <6.6, where an
+ * `instanceof undefined` check would itself throw. Driver 4.x-5.x surface the
+ * same condition as a MongoError with a "Topology is closed" message.
+ */
+export function isClientClosedError(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'MongoClientClosedError' || /topology is closed/i.test(error.message));
+}
+
 export const CODE_REACTIVE_TASK_PLANNER_STARTED = 'reactiveTaskPlannerStarted';
 /** The one-time pre-2.3.1 record migration rewrote `migrated` records (leader only). */
 export const CODE_REACTIVE_TASK_LEGACY_MIGRATION = 'reactiveTaskLegacyMigration';

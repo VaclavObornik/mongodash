@@ -1,5 +1,5 @@
 import * as _debug from 'debug';
-import { Document, MongoClientClosedError } from 'mongodb';
+import { Document } from 'mongodb';
 import { GlobalsCollection } from '../globalsCollection';
 import { defaultOnError, OnError } from '../OnError';
 import { OnInfo } from '../OnInfo';
@@ -10,6 +10,7 @@ import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
+    isClientClosedError,
     MetaDocument,
     REACTIVE_TASK_META_DOC_ID,
 } from './ReactiveTaskTypes';
@@ -176,7 +177,7 @@ export class ReactiveTaskReconciler {
                 debug(`[Scheduler ${this.instanceId}] Error reconciling collection: ${entry.tasksCollection.collectionName}`, error);
                 // A closed client after a requested stop is the normal shutdown
                 // race, not an operator-visible failure (same rule as LeaderElector).
-                if (shouldStop() && error instanceof MongoClientClosedError) {
+                if (shouldStop() && isClientClosedError(error)) {
                     return;
                 }
                 // Surface the failure. Reconciliation is the recovery mechanism
