@@ -103,6 +103,15 @@ describe('OperationalTaskController', () => {
             expect(taskManager.getTasks).toHaveBeenLastCalledWith({}, expect.objectContaining({ limit: 50 }));
         });
 
+        it('should floor fractional values and reject non-finite ones', async () => {
+            await controller.getReactiveTasks({ limit: 1.9, skip: 2.7 });
+            expect(taskManager.getTasks).toHaveBeenLastCalledWith({}, expect.objectContaining({ limit: 1, skip: 2 }));
+
+            // `?skip=Infinity` must not reach the driver as Infinity.
+            await controller.getReactiveTasks({ limit: Infinity, skip: Infinity });
+            expect(taskManager.getTasks).toHaveBeenLastCalledWith({}, expect.objectContaining({ limit: 50, skip: 0 }));
+        });
+
         it('should map hasError string flag to a boolean query', async () => {
             await controller.getReactiveTasks({ hasError: 'true' });
             expect(taskManager.getTasks).toHaveBeenCalledWith(expect.objectContaining({ hasError: true }), expect.any(Object));
