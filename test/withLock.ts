@@ -191,6 +191,27 @@ describe('withLock', () => {
         });
     });
 
+    it('should not memoize a failed index setup - the next withLock retries createIndex', async () => {
+        const { withLock, getCollection } = instance.mongodash;
+        const collection = getCollection('locks');
+
+        const indexError = new Error('transient createIndex failure');
+        const createIndexStub = sandbox.stub(collection, 'createIndex').callThrough();
+        createIndexStub.onFirstCall().rejects(indexError);
+
+        // The first call surfaces the setup failure...
+        await assert.rejects(() => withLock('index-retry-key', async () => 'nope'), /transient createIndex failure/);
+
+        // ...but must not poison the memo: the next call retries createIndex
+        // and locking works for the rest of the process lifetime.
+        const callback = sandbox.spy(async () => 'done');
+        const result = await withLock('index-retry-key', callback);
+
+        assert.strictEqual(result, 'done');
+        assert.strictEqual(callback.callCount, 1);
+        assert.strictEqual(createIndexStub.callCount, 2, 'createIndex must be retried by the next withLock call');
+    });
+
     it('should prolong the lock if the task lasts too long', async () => {
         const { withLock, getCollection } = instance.mongodash;
         const key = 'prolong-test';

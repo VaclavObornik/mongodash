@@ -3,7 +3,7 @@ import { init as initCronTasks, InitOptions as CronTasksInitOptions } from './cr
 import { getCollection, init as initGetCollection, InitOptions as GetCollectionInitOptions, reset as getCollectionReset } from './getCollection';
 import { init as initMongoClient, InitOptions as GetMongoClientInitOptions } from './getMongoClient';
 import { GlobalsCollection } from './globalsCollection';
-import { resolveInitPromise } from './initPromise';
+import { rejectInitPromise, resolveInitPromise } from './initPromise';
 import { defaultOnError, OnError, setGlobalOnError } from './OnError';
 import { defaultOnInfo, OnInfo, setGlobalOnInfo } from './OnInfo';
 import { createIntervalFunction } from './parseInterval';
@@ -41,6 +41,7 @@ export {
     CODE_REACTIVE_TASK_FINISHED,
     CODE_REACTIVE_TASK_INITIALIZED,
     CODE_REACTIVE_TASK_LEADER_LOCK_LOST,
+    CODE_REACTIVE_TASK_LEGACY_MIGRATION,
     CODE_REACTIVE_TASK_LOCK_LOST,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
@@ -106,19 +107,14 @@ export async function init(options: InitOptions): Promise<void> {
         await initInternal(options);
         resolveInitPromise();
     } catch (err) {
-        // A common startup race is the app container coming up before MongoDB is
-        // reachable, so the first await (initMongoClient) rejects. Reset the
-        // guard so the caller can retry init() instead of being permanently
-        // stuck with an unresolved initPromise and a "can be called only once"
-        // error on every retry.
-        //
-        // Only up to that point, though: once the sub-systems have been handed
-        // their (one-shot) configuration, a retry would fail inside them with a
-        // confusing secondary error such as "Cron tasks are already running".
-        // Keeping the guard set means the caller sees the real error and a
-        // retry is refused explicitly.
+        // Before the one-shot sub-system config: reset the guard so the caller
+        // can retry init() (typical: app up before MongoDB is reachable). After
+        // it a clean retry is impossible, so keep the guard and reject the
+        // initPromise - awaiting registrations get the real error, never a hang.
         if (!subsystemsConfigured) {
             initCalled = false;
+        } else {
+            rejectInitPromise(err as Error);
         }
         throw err;
     }
