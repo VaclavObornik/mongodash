@@ -1,7 +1,7 @@
 import { noop } from 'lodash';
 import { Document, MongoError } from 'mongodb';
 import { createSandbox } from 'sinon';
-import { createReusableWaitableStub, getNewInstance, wait } from '../testHelpers';
+import { createReusableWaitableStub, getNewInstance, wait, waitUntil } from '../testHelpers';
 import { getMetric, getMetricValue } from '../testHelpersReactive';
 
 const GLOBAL_COLLECTION_NAME = '_mongodash_globals';
@@ -156,6 +156,71 @@ describe('Reactive Task Observability Metrics', () => {
             await instance.mongodash.stopReactiveTasks();
         }
     }, 15000);
+
+    it('queue-gauge refresh is scoped per collection - one collection cannot erase another collection series', async () => {
+        // collectQueueMetrics clears a collection's series only AFTER its stats
+        // query succeeded. A global clear (the bug this pins) would erase the
+        // series of a collection whose refresh failed or did not run.
+        await instance.initInstance({
+            globalsCollection: GLOBAL_COLLECTION_NAME,
+            onError: noop,
+            onInfo: noop,
+            monitoring: { enabled: true, scrapeMode: 'local' },
+        });
+
+        const colA = instance.mongodash.getCollection('queueGaugeColA');
+        const colB = instance.mongodash.getCollection('queueGaugeColB');
+        await instance.mongodash.reactiveTask({ collection: colA, task: 'queueGaugeTaskA', handler: async () => {} });
+        await instance.mongodash.reactiveTask({ collection: colB, task: 'queueGaugeTaskB', handler: async () => {} });
+
+        await instance.mongodash.startReactiveTasks();
+        const scheduler = (instance.mongodash as any)._scheduler;
+
+        try {
+            await waitUntilLeader(scheduler);
+
+            await colA.insertOne({ _id: 'a1' } as Document);
+            await colB.insertOne({ _id: 'b1' } as Document);
+
+            // Both task records must exist before the stats query can emit rows.
+            const tasksA = instance.mongodash.getCollection('queueGaugeColA_tasks');
+            const tasksB = instance.mongodash.getCollection('queueGaugeColB_tasks');
+            await waitUntil(async () => (await tasksA.countDocuments()) >= 1 && (await tasksB.countDocuments()) >= 1, { timeoutMs: 10000 });
+
+            const scrapeQueueDepth = async () => {
+                const registry = await instance.mongodash.getPrometheusMetrics();
+                expect(registry).not.toBeNull();
+                const json = await registry!.getMetricsAsJSON();
+                return getMetric(json, 'reactive_tasks_queue_depth');
+            };
+
+            // Baseline scrape: both collections' series are present.
+            await waitUntil(
+                async () => {
+                    const metric = await scrapeQueueDepth();
+                    return (
+                        getMetricValue(metric, { task_name: 'queueGaugeTaskA' }, false) !== undefined &&
+                        getMetricValue(metric, { task_name: 'queueGaugeTaskB' }, false) !== undefined
+                    );
+                },
+                { timeoutMs: 10000, message: 'both queue_depth series should appear' },
+            );
+
+            // Make collection B's stats refresh fail from now on.
+            const entries = scheduler.getRegistry().getAllEntries();
+            const entryB = entries.find((e: any) => e.tasksCollection.collectionName === 'queueGaugeColB_tasks');
+            expect(entryB).toBeDefined();
+            sandbox.stub(entryB.repository, 'getStatistics').rejects(new Error('Simulated stats failure'));
+
+            // A's refresh succeeds and rewrites A; B's failure must leave B's
+            // previous (stale) series in place instead of erasing it.
+            const metric = await scrapeQueueDepth();
+            expect(getMetricValue(metric, { task_name: 'queueGaugeTaskA' }, false)).toBeDefined();
+            expect(getMetricValue(metric, { task_name: 'queueGaugeTaskB' }, false)).toBeDefined();
+        } finally {
+            await instance.mongodash.stopReactiveTasks();
+        }
+    }, 30000);
 
     it('lock_lost_total{task_name} increments when CAS renewal detects the visibility lock was stolen', async () => {
         await instance.initInstance({

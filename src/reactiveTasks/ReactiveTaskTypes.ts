@@ -396,6 +396,8 @@ export const CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION = 'reactiveTaskThrewAfter
 export const CODE_REACTIVE_TASK_DEFER_IGNORED = 'reactiveTaskDeferIgnored';
 
 export const CODE_REACTIVE_TASK_PLANNER_STARTED = 'reactiveTaskPlannerStarted';
+/** The one-time pre-2.3.1 record migration rewrote `migrated` records (leader only). */
+export const CODE_REACTIVE_TASK_LEGACY_MIGRATION = 'reactiveTaskLegacyMigration';
 export const CODE_REACTIVE_TASK_PLANNER_STOPPED = 'reactiveTaskPlannerStopped';
 export const CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED = 'reactiveTaskPlannerReconciliationStarted';
 export const CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_FINISHED = 'reactiveTaskPlannerReconciliationFinished';

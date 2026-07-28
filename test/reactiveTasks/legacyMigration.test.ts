@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { getNewInstance } from '../testHelpers';
+import { getNewInstance, wait, waitUntil } from '../testHelpers';
 
 /**
  * Backward compatibility with records written before 2.3.1, which stored the
@@ -168,4 +168,194 @@ describe('legacy (pre-2.3.1) task record migration', () => {
         expect(late.nextRunAt).toBeUndefined(); // untouched: no second scan
         expect(late.scheduledAt).toEqual(past);
     });
+});
+
+/**
+ * A mixed-version artifact: a pre-2.3.1 finalize cannot null `nextRunAt`, so a
+ * terminal record can carry a past DATED nextRunAt. The polling query's
+ * `status: { $nin: ['completed', 'failed'] }` guard must keep workers from ever
+ * re-claiming such a record - re-running it would replay its side effects.
+ */
+describe('claim guard for terminal records with a dated nextRunAt', () => {
+    let instance: ReturnType<typeof getNewInstance>;
+    let API: typeof instance.mongodash;
+
+    const taskName = 'terminal-claim-guard-task';
+    const sourceCollectionName = 'terminal_claim_guard_items';
+    const tasksCollectionName = 'terminal_claim_guard_items_tasks';
+
+    const completedId = new ObjectId();
+    const failedId = new ObjectId();
+    const pendingId = new ObjectId();
+
+    const srcCompleted = new ObjectId();
+    const srcFailed = new ObjectId();
+    const srcPending = new ObjectId();
+
+    // The terminal records are the MOST due ones (earliest nextRunAt), so a
+    // missing status guard would claim them before the healthy pending record.
+    const longPast = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const past = new Date(Date.now() - 60 * 60 * 1000);
+
+    let handlerCalls: string[] = [];
+
+    beforeEach(async () => {
+        handlerCalls = [];
+        instance = getNewInstance();
+        await instance.initInstance({
+            reactiveTaskConcurrency: 2,
+            minBatchIntervalMs: 10,
+            minPollMs: 10,
+        } as never);
+        API = instance.mongodash;
+
+        await API.reactiveTask({
+            task: taskName,
+            collection: sourceCollectionName,
+            handler: async (context) => {
+                handlerCalls.push(String(context.docId));
+            },
+        });
+
+        const record = (id: ObjectId, sourceDocId: ObjectId, status: string, nextRunAt: Date, extra: Record<string, unknown> = {}) => ({
+            _id: id,
+            task: taskName,
+            sourceDocId,
+            status,
+            attempts: 1,
+            nextRunAt,
+            dueAt: past,
+            createdAt: past,
+            updatedAt: past,
+            ...extra,
+        });
+
+        await API.getCollection(tasksCollectionName).insertMany([
+            record(completedId, srcCompleted, 'completed', longPast, { completedAt: past, lastError: null }),
+            record(failedId, srcFailed, 'failed', longPast, { lastError: 'boom' }),
+            record(pendingId, srcPending, 'pending', past, { attempts: 0 }),
+        ] as never);
+
+        await API.startReactiveTasks();
+    });
+
+    afterEach(async () => {
+        await API.stopReactiveTasks();
+        await instance.cleanUpInstance();
+    });
+
+    it('never claims completed/failed records while a normal pending record is processed', async () => {
+        // The healthy pending record proves the workers ARE polling.
+        await waitUntil(() => handlerCalls.includes(String(srcPending)), { timeoutMs: 10000, message: 'pending record should be processed' });
+
+        // Negative assertion: give the workers ample time to (wrongly) claim
+        // the terminal records too.
+        await wait(800);
+
+        const read = async (id: ObjectId) => (await API.getCollection(tasksCollectionName).findOne({ _id: id } as never)) as unknown as Record<string, unknown>;
+
+        const completed = await read(completedId);
+        expect(completed.status).toBe('completed');
+        expect(completed.attempts).toBe(1); // findAndLockNextTask would $inc it
+        expect(completed.startedAt).toBeUndefined(); // and stamp startedAt
+
+        const failed = await read(failedId);
+        expect(failed.status).toBe('failed');
+        expect(failed.attempts).toBe(1);
+        expect(failed.startedAt).toBeUndefined();
+
+        expect(handlerCalls).not.toContain(String(srcCompleted));
+        expect(handlerCalls).not.toContain(String(srcFailed));
+    }, 20000);
+});
+
+/**
+ * Legacy straggler self-heal: the one-time migration is marker-gated, so a
+ * pre-2.3.1 record written AFTER the migration ran (an old instance still
+ * alive during a rolling window) is invisible to polling - it has no dated
+ * `nextRunAt`. The planning `$merge` whenMatched branch must heal it by
+ * mapping the missing nextRunAt to `$$new.nextRunAt` on non-terminal records.
+ */
+describe('legacy straggler self-heal via the planning pipeline', () => {
+    let instance: ReturnType<typeof getNewInstance>;
+    let API: typeof instance.mongodash;
+
+    const taskName = 'legacy-straggler-task';
+    const sourceCollectionName = 'legacy_straggler_items';
+    const tasksCollectionName = 'legacy_straggler_items_tasks';
+
+    const stragglerId = new ObjectId();
+    const srcId = new ObjectId();
+    const past = new Date(Date.now() - 60 * 60 * 1000);
+
+    let handlerCalls: string[] = [];
+
+    beforeEach(async () => {
+        handlerCalls = [];
+        instance = getNewInstance();
+        await instance.initInstance({
+            reactiveTaskConcurrency: 2,
+            minBatchIntervalMs: 10,
+            minPollMs: 10,
+        } as never);
+        API = instance.mongodash;
+
+        await API.reactiveTask({
+            task: taskName,
+            collection: sourceCollectionName,
+            debounce: 10,
+            handler: async (context) => {
+                handlerCalls.push(String(context.docId));
+            },
+        });
+
+        // The source document exists, so reconciliation on startup plans a task
+        // for it and the $merge takes the whenMatched path over the straggler.
+        await API.getCollection(sourceCollectionName).insertOne({ _id: srcId } as never);
+
+        // The straggler exactly as a pre-2.3.1 instance writes it: scheduledAt,
+        // NO nextRunAt - invisible to the polling query until healed.
+        await API.getCollection(tasksCollectionName).insertOne({
+            _id: stragglerId,
+            task: taskName,
+            sourceDocId: srcId,
+            status: 'pending',
+            attempts: 0,
+            scheduledAt: past,
+            createdAt: past,
+            updatedAt: past,
+        } as never);
+
+        // The collection is ALREADY marked migrated, so the one-time migration
+        // must skip it - only the planning pipeline can heal the record.
+        await API.getCollection('_mongodash_globals').updateOne(
+            { _id: '_mongodash_planner_meta' } as never,
+            { $set: { legacyMigratedCollections: [tasksCollectionName] } } as never,
+            { upsert: true },
+        );
+
+        await API.startReactiveTasks();
+    });
+
+    afterEach(async () => {
+        await API.stopReactiveTasks();
+        await instance.cleanUpInstance();
+    });
+
+    it('heals the straggler with a dated nextRunAt and executes it', async () => {
+        const read = async () => (await API.getCollection(tasksCollectionName).findOne({ _id: stragglerId } as never)) as unknown as Record<string, unknown>;
+
+        // Reconciliation plans the source doc; whenMatched maps the missing
+        // nextRunAt to a date, making the record claimable.
+        await waitUntil(async () => (await read()).nextRunAt instanceof Date, { timeoutMs: 15000, message: 'straggler should gain a dated nextRunAt' });
+
+        // ...and the task actually executes to completion.
+        await waitUntil(() => handlerCalls.includes(String(srcId)), { timeoutMs: 15000, message: 'straggler task should execute' });
+        await waitUntil(async () => (await read()).status === 'completed', { timeoutMs: 15000, message: 'straggler task should complete' });
+
+        // Proof the heal came from the planning pipeline, not from a second run
+        // of the one-time migration: the migration $unsets scheduledAt, the
+        // whenMatched branch leaves it in place.
+        expect((await read()).scheduledAt).toEqual(past);
+    }, 30000);
 });
