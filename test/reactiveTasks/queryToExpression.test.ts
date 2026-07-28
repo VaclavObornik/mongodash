@@ -156,4 +156,16 @@ describe('queryToExpression', () => {
             $in: [{ $ifNull: ['$demo.assigned', null] }, [null, true]],
         });
     });
+
+    it('should return empty expression when a field condition yields no conditions ($options alone)', () => {
+        // $options is only meaningful next to $regex; alone it produces no
+        // condition, so both the field and the whole query degrade to "match all".
+        expect(queryToExpression({ name: { $options: 'i' } })).toEqual({});
+    });
+
+    it('should ignore an $options-only field next to a real condition', () => {
+        expect(queryToExpression({ name: { $options: 'i' }, a: 1 })).toEqual({
+            $eq: [{ $ifNull: ['$a', null] }, 1],
+        });
+    });
 });

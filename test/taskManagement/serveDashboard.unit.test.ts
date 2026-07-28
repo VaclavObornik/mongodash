@@ -129,6 +129,23 @@ describe('serveDashboard Integration Tests', () => {
             expect(response.error).toBeDefined();
         });
 
+        it('should handle /api/cron/trigger (POST) success for a registered task', async () => {
+            await API.cronTask('dashboard-trigger-unit-task', '1m', async () => undefined);
+
+            req.url = '/api/cron/trigger';
+            req.method = 'POST';
+
+            const scheduler = (API as any)._scheduler;
+            const p = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            emitBody({ taskId: 'dashboard-trigger-unit-task' });
+            const handled = await p;
+
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(200);
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response).toEqual({ success: true });
+        });
+
         it('should handle /api/info', async () => {
             const scheduler = (API as any)._scheduler;
             req.url = '/api/info';
@@ -268,6 +285,32 @@ describe('serveDashboard Integration Tests', () => {
             expect(endSpy).toHaveBeenCalled();
         });
 
+        it('destroys the response when the read stream errors after headers were sent', async () => {
+            const scheduler = (API as any)._scheduler;
+            (fsMock.existsSync as jest.Mock).mockImplementation((p) => p === '/mock/dist' || p === '/mock/dist/style.css');
+            (fsMock.statSync as jest.Mock).mockReturnValue({ isFile: () => true });
+            let errorHandler: ((e: Error) => void) | undefined;
+            (fsMock.createReadStream as jest.Mock).mockReturnValue({
+                pipe: jest.fn(),
+                on: jest.fn((ev: string, cb: (e: Error) => void) => {
+                    if (ev === 'error') errorHandler = cb;
+                }),
+            });
+            const destroySpy = jest.fn();
+            (res as any).destroy = destroySpy;
+
+            req.url = '/style.css';
+            await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler, dashboardPath });
+            // Part of the body is already on the wire: a clean end() would present
+            // a truncated file as complete, so the transfer must be aborted.
+            (res as any).headersSent = true;
+            endSpy.mockClear();
+            errorHandler!(new Error('file removed mid-stream'));
+
+            expect(destroySpy).toHaveBeenCalled();
+            expect(endSpy).not.toHaveBeenCalled();
+        });
+
         describe('Path Resolution', () => {
             // We need to access the helper but it's internal.
             // But we can verify it by checking what path it tries to read.
@@ -317,6 +360,83 @@ describe('serveDashboard Integration Tests', () => {
                 expect(callArgs).toMatch(/\/dashboard\/style\.css$/);
                 expect(callArgs).not.toMatch(/dist\/dashboard\/style\.css$/);
             });
+        });
+    });
+
+    describe('Request body parsing', () => {
+        it('responds with an error for an invalid JSON body', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/cron/trigger';
+            const on = req.on as jest.Mock;
+
+            const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            const dataHandler = on.mock.calls.find((c) => c[0] === 'data')?.[1];
+            const endHandler = on.mock.calls.find((c) => c[0] === 'end')?.[1];
+            dataHandler('this-is-not-json{');
+            endHandler();
+            const handled = await promise;
+
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(500);
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.error).toBe('Invalid JSON body');
+        });
+
+        it('treats an empty body as an empty object', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/cron/trigger';
+            const on = req.on as jest.Mock;
+
+            const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            const endHandler = on.mock.calls.find((c) => c[0] === 'end')?.[1];
+            endHandler();
+            const handled = await promise;
+
+            // Empty body parses to {} and the controller then rejects the
+            // missing taskId - proving the {} branch (not a JSON error) ran.
+            expect(handled).toBe(true);
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.error).toBe('taskId is required');
+        });
+
+        it('reuses a body already parsed by middleware (req.body)', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/cron/trigger';
+            (req as any).body = { taskId: '' };
+
+            const handled = await serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+
+            expect(handled).toBe(true);
+            // Stream listeners must not be needed when the body is pre-parsed.
+            expect(req.on as jest.Mock).not.toHaveBeenCalled();
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.error).toBe('taskId is required');
+        });
+
+        it('propagates a request stream error and ignores later events', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/reactive/retry';
+            const on = req.on as jest.Mock;
+
+            const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            const errorHandler = on.mock.calls.find((c) => c[0] === 'error')?.[1];
+            const endHandler = on.mock.calls.find((c) => c[0] === 'end')?.[1];
+            expect(errorHandler).toBeDefined();
+            errorHandler(new Error('socket read failure'));
+            // Later events on the already-settled request must be no-ops.
+            errorHandler(new Error('second failure'));
+            endHandler();
+            const handled = await promise;
+
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(500);
+            expect(endSpy).toHaveBeenCalledTimes(1);
+            const response = JSON.parse(endSpy.mock.calls[0][0]);
+            expect(response.error).toBe('socket read failure');
         });
     });
 
