@@ -141,6 +141,23 @@ describe('ReactiveTaskRetryStrategy', () => {
                 });
             }).toThrow(/Invalid duration format for 'intervals\[1\]'/);
         });
+
+        it('should throw error for a negative duration', () => {
+            expect(() => {
+                new ReactiveTaskRetryStrategy({
+                    type: 'fixed',
+                    interval: '-5s',
+                });
+            }).toThrow(/Duration 'interval' must be non-negative/);
+        });
+
+        it('should throw when the policy type is corrupted after construction', () => {
+            const strategy = new ReactiveTaskRetryStrategy({ type: 'fixed', interval: '1s' });
+            // The constructor validates the type, so this guard is reachable
+            // only through runtime mutation of the (structurally shared) policy.
+            (strategy.policy as unknown as { type: string }).type = 'bogus';
+            expect(() => strategy.calculateNextRetry(1)).toThrow(/Unknown retry policy type: bogus/);
+        });
     });
 
     describe('shouldFail', () => {

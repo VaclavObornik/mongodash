@@ -11,6 +11,10 @@ jest.mock('../../src/cronTasks', () => ({
     scheduleCronTaskImmediately: jest.fn(),
 }));
 
+jest.mock('../../src/getMongoClient', () => ({
+    getMongoClient: () => ({ db: () => ({ databaseName: 'unit-test-db' }) }),
+}));
+
 describe('OperationalTaskController', () => {
     let scheduler: ReactiveTaskScheduler;
     let taskManager: ReactiveTaskManager;
@@ -21,10 +25,12 @@ describe('OperationalTaskController', () => {
             getTasks: jest.fn().mockResolvedValue({ items: [], total: 0 }),
             getTaskStats: jest.fn().mockResolvedValue({ statuses: [], errorCount: 0 }),
             retryTasks: jest.fn().mockResolvedValue({ modifiedCount: 1, matchedCount: 1 }),
+            getAllTaskStats: jest.fn().mockResolvedValue({}),
         } as unknown as ReactiveTaskManager;
 
         scheduler = {
             getTaskManager: jest.fn().mockReturnValue(taskManager),
+            getRegistry: jest.fn().mockReturnValue({ getAllTasks: () => [] }),
         } as unknown as ReactiveTaskScheduler;
 
         controller = new OperationalTaskController(scheduler);
@@ -77,6 +83,59 @@ describe('OperationalTaskController', () => {
                     sort: { field: 'nextRunAt', direction: 1 },
                 },
             );
+        });
+
+        it('should clamp limit=0 (MongoDB "unlimited") back to the default', async () => {
+            await controller.getReactiveTasks({ limit: 0, skip: 0 });
+            expect(taskManager.getTasks).toHaveBeenCalledWith({}, expect.objectContaining({ limit: 50, skip: 0 }));
+        });
+
+        it('should clamp an oversized limit to the maximum and a negative skip to 0', async () => {
+            await controller.getReactiveTasks({ limit: 9999, skip: -3 });
+            expect(taskManager.getTasks).toHaveBeenCalledWith({}, expect.objectContaining({ limit: 500, skip: 0 }));
+        });
+
+        it('should clamp a negative/NaN limit', async () => {
+            await controller.getReactiveTasks({ limit: -5 });
+            expect(taskManager.getTasks).toHaveBeenCalledWith({}, expect.objectContaining({ limit: 1 }));
+
+            await controller.getReactiveTasks({ limit: 'abc' as unknown as number });
+            expect(taskManager.getTasks).toHaveBeenLastCalledWith({}, expect.objectContaining({ limit: 50 }));
+        });
+
+        it('should map hasError string flag to a boolean query', async () => {
+            await controller.getReactiveTasks({ hasError: 'true' });
+            expect(taskManager.getTasks).toHaveBeenCalledWith(expect.objectContaining({ hasError: true }), expect.any(Object));
+
+            await controller.getReactiveTasks({ hasError: 'false' });
+            expect(taskManager.getTasks).toHaveBeenLastCalledWith(expect.objectContaining({ hasError: false }), expect.any(Object));
+        });
+
+        it('should short-circuit to an empty page for a collection with no registered tasks', async () => {
+            const result = await controller.getReactiveTasks({ collection: 'unknown-collection', limit: 9999, skip: 2 });
+
+            expect(result).toEqual({
+                items: [],
+                total: 0,
+                limit: 500,
+                offset: 2,
+                stats: { statuses: [], errorCount: 0 },
+            });
+            expect(taskManager.getTasks).not.toHaveBeenCalled();
+            expect(taskManager.getTaskStats).not.toHaveBeenCalled();
+        });
+
+        it('should map a known collection to its task names', async () => {
+            (scheduler.getRegistry as jest.Mock).mockReturnValue({
+                getAllTasks: () => [
+                    { task: 'task-a', sourceCollection: { collectionName: 'orders' } },
+                    { task: 'task-b', sourceCollection: { collectionName: 'orders' } },
+                    { task: 'task-c', sourceCollection: { collectionName: 'users' } },
+                ],
+            });
+
+            await controller.getReactiveTasks({ collection: 'orders' });
+            expect(taskManager.getTasks).toHaveBeenCalledWith(expect.objectContaining({ task: ['task-a', 'task-b'] }), expect.any(Object));
         });
     });
 
@@ -140,6 +199,60 @@ describe('OperationalTaskController', () => {
                     sourceDocFilter: { _id: { $in: ['123', 123] } },
                 }),
             );
+        });
+
+        it('should pass errorMessage and _id filters to retryTasks', async () => {
+            await controller.retryReactiveTasks({ errorMessage: 'boom', _id: 'record-1' });
+
+            expect(taskManager.retryTasks).toHaveBeenCalledWith({
+                errorMessage: 'boom',
+                _id: 'record-1',
+            });
+        });
+    });
+
+    describe('getInfo', () => {
+        it('should aggregate reactive task stats, sort tasks by name and map cron tasks', async () => {
+            (scheduler.getRegistry as jest.Mock).mockReturnValue({
+                getAllTasks: () => [
+                    // Intentionally out of order to exercise the name sort.
+                    { task: 'zeta', sourceCollection: { collectionName: 'orders' } },
+                    { task: 'alpha', sourceCollection: { collectionName: 'users' } },
+                ],
+            });
+            (taskManager.getAllTaskStats as jest.Mock).mockResolvedValue({
+                zeta: {
+                    statuses: [
+                        { _id: 'completed', count: 1 },
+                        { _id: 'success', count: 2 },
+                        { _id: 'failed', count: 3 },
+                        { _id: 'processing', count: 4 },
+                        { _id: 'processing_dirty', count: 5 },
+                        { _id: 'pending', count: 6 },
+                        { _id: 'some-unknown-status', count: 7 },
+                    ],
+                    // errorCount deliberately missing to exercise the || 0 fallback
+                },
+                // 'alpha' deliberately missing to exercise the stats fallback
+            });
+            (getCronTasksList as jest.Mock).mockResolvedValue({
+                items: [
+                    { _id: 'cron-with-error', status: 'failed', lastRun: { error: 'kaboom' }, nextRunAt: new Date(1) },
+                    { _id: 'cron-never-run', status: 'idle', nextRunAt: new Date(2) },
+                ],
+            });
+
+            const info = await controller.getInfo();
+
+            expect(info.databaseName).toBe('unit-test-db');
+            expect(info.reactiveTasks).toEqual([
+                { name: 'alpha', collection: 'users', stats: { success: 0, failed: 0, processing: 0, pending: 0, error: 0 } },
+                { name: 'zeta', collection: 'orders', stats: { success: 3, failed: 3, processing: 9, pending: 6, error: 0 } },
+            ]);
+            expect(info.cronTasks).toEqual([
+                { id: 'cron-with-error', status: 'failed', lastRunError: 'kaboom', nextRunAt: new Date(1) },
+                { id: 'cron-never-run', status: 'idle', lastRunError: undefined, nextRunAt: new Date(2) },
+            ]);
         });
     });
 
