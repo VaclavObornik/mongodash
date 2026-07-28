@@ -36,9 +36,7 @@ export function init(options: InitOptions): void {
     }
 
     state.runCronTasks = options.runCronTasks;
-    if (options.cronExpressionParserOptions.endDate) {
-        throw new Error("The 'endDate' parameter of the cron-parser package is not supported yet.");
-    }
+    // endDate is rejected earlier by init()'s validatePureOptions.
     state.cronExpressionParserOptions = options.cronExpressionParserOptions;
     state.cronTaskCaller = options.cronTaskCaller;
     state.cronTaskFilter = options.cronTaskFilter;
@@ -193,24 +191,30 @@ function createIntervalFunctionFromScalar(interval: ScalarInterval): () => Date 
 const minNextRunMs = 200;
 
 /**
- * @param recoverFromInvalid When the interval function returns something
- * unusable, report it and back off instead of throwing. Used for the RESCHEDULE
- * after a run: throwing there would abandon the write that follows, leaving the
- * task on its stale past `runSince` so it re-executes on every lock expiry,
- * forever. At registration the default (throw) applies, so a broken interval
- * still fails fast.
+ * @param recoverFromInvalid When the interval function throws or returns an
+ * unusable value (including an Invalid Date), report it and back off instead of
+ * throwing. Used for the RESCHEDULE after a run: a throw there would skip the
+ * write that follows, leaving a past `runSince` that re-runs the task on every
+ * lock expiry. At registration the default (throw) applies, failing fast.
  */
 async function getNextRunDate(intervalFunction: IntervalFunction, { recoverFromInvalid = false } = {}): Promise<Date> {
-    const maybeDate: StaticInterval = await intervalFunction();
+    const computeNext = async (): Promise<Date> => {
+        const maybeDate: StaticInterval = await intervalFunction();
+        const next = maybeDate instanceof Date ? maybeDate : createIntervalFunctionFromScalar(maybeDate)();
+        // An Invalid Date would pass the non-future clamp below (NaN <= now is
+        // false) and bson serializes it as epoch 0 - a perpetually-due hot loop.
+        if (Number.isNaN(next.getTime())) {
+            throw new Error('The interval function returned an Invalid Date.');
+        }
+        return next;
+    };
 
     let next: Date;
-    if (maybeDate instanceof Date) {
-        next = maybeDate;
-    } else if (!recoverFromInvalid) {
-        next = createIntervalFunctionFromScalar(maybeDate)();
+    if (!recoverFromInvalid) {
+        next = await computeNext();
     } else {
         try {
-            next = createIntervalFunctionFromScalar(maybeDate)();
+            next = await computeNext();
         } catch (err) {
             onError(err as Error);
             next = new Date(Date.now() + noTaskWaitTime);
