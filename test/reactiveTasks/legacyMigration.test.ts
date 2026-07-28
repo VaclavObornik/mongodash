@@ -351,20 +351,23 @@ describe('legacy straggler self-heal via the planning pipeline', () => {
         await instance.cleanUpInstance();
     });
 
-    it('heals the straggler with a dated nextRunAt and executes it', async () => {
+    it('heals the straggler and executes it to completion', async () => {
         const read = async () => (await API.getCollection(tasksCollectionName).findOne({ _id: stragglerId } as never)) as unknown as Record<string, unknown>;
 
-        // Reconciliation plans the source doc; whenMatched maps the missing
-        // nextRunAt to a date, making the record claimable.
-        await waitUntil(async () => (await read()).nextRunAt instanceof Date, { timeoutMs: 15000, message: 'straggler should gain a dated nextRunAt' });
+        // The heal makes the record claimable, but the dated nextRunAt can be
+        // claimed and finalized within milliseconds - polling for the transient
+        // date races the workers. Assert the observable outcomes instead: the
+        // handler ran and the record finalized. Without the self-heal branch
+        // neither ever happens (the record stays invisible to polling).
+        await waitUntil(() => handlerCalls.includes(String(srcId)), { timeoutMs: 30000, message: 'straggler task should execute' });
+        await waitUntil(async () => (await read()).status === 'completed', { timeoutMs: 30000, message: 'straggler task should complete' });
 
-        // ...and the task actually executes to completion.
-        await waitUntil(() => handlerCalls.includes(String(srcId)), { timeoutMs: 15000, message: 'straggler task should execute' });
-        await waitUntil(async () => (await read()).status === 'completed', { timeoutMs: 15000, message: 'straggler task should complete' });
-
+        const healed = await read();
+        // Present (null after completion) where it was MISSING before the heal.
+        expect(healed.nextRunAt !== undefined).toBe(true);
         // Proof the heal came from the planning pipeline, not from a second run
         // of the one-time migration: the migration $unsets scheduledAt, the
         // whenMatched branch leaves it in place.
-        expect((await read()).scheduledAt).toEqual(past);
+        expect(healed.scheduledAt).toEqual(past);
     }, 60000);
 });
