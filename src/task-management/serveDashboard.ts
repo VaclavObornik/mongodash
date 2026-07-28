@@ -137,9 +137,11 @@ function httpError(statusCode: number, message: string): Error & { statusCode: n
 }
 
 async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-    // If body is already parsed (Express/Koa with body-parser)
+    // If body is already parsed (Express/Koa with body-parser). Checked against
+    // undefined: a falsy parsed body still means the stream is consumed, and
+    // attaching listeners to it would wait forever.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((req as any).body) return (req as any).body;
+    if ((req as any).body !== undefined) return (req as any).body || {};
 
     return new Promise((resolve, reject) => {
         // Cap the buffered body. Without a limit an attacker (the dashboard has
