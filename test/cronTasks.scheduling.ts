@@ -177,10 +177,16 @@ describe('cronTasks - scheduling semantics', () => {
 
             await assert.rejects(() => cronTask(taskId, Number.NaN, sinon.spy()), /Error: Interval number has to be finite\./);
         });
+
+        it('rejects an interval function returning an Invalid Date at registration', async () => {
+            const taskId = nextTaskId();
+
+            await assert.rejects(() => cronTask(taskId, () => new Date(NaN), sinon.spy()), /Invalid Date/);
+        });
     });
 
     describe('runtime scheduling behaviour', () => {
-        it('reports onError and keeps the task locked when the interval function throws while re-scheduling', async () => {
+        it('reports onError and backs off (releasing the lock) when the interval function throws while re-scheduling', async () => {
             const taskId = nextTaskId();
             const scheduleError = new Error('something bad happened');
             const at = new Date();
@@ -191,14 +197,39 @@ describe('cronTasks - scheduling semantics', () => {
                 return at;
             });
 
-            const docBeforeReschedule = await cronTask(taskId, intervalFunction, task).then(() => getDocument(taskId));
+            await cronTask(taskId, intervalFunction, task);
 
             await waitUntil(() => task.callCount >= 1, { timeoutMs: 3000, message: 'task ran at least once' });
             await waitUntil(() => onError.callCount >= 1, { timeoutMs: 3000, message: 'onError fired' });
-
             assert.deepStrictEqual(onError.firstCall.args, [scheduleError]);
+
+            // The reschedule write must still happen: without it the task keeps
+            // its past runSince and re-runs the finished handler on every lock
+            // expiry, forever.
+            await waitUntil(async () => (await getDocument(taskId)).lockedTill === null, { timeoutMs: 3000 });
             const docAfter = await getDocument(taskId);
-            assert.deepStrictEqual(docAfter.runSince, docBeforeReschedule.runSince, 'runSince must not move when rescheduling throws');
+            assert(docAfter.runSince.getTime() > Date.now(), 'runSince must back off into the future');
+            assert.strictEqual(task.callCount, 1, 'the successful run must not repeat');
+        });
+
+        it('reports onError and backs off when the interval function returns an Invalid Date while re-scheduling', async () => {
+            const taskId = nextTaskId();
+            const task = sinon.spy();
+
+            // An Invalid Date would bypass the non-future clamp (NaN <= now is
+            // false) and bson-serialize as epoch 0 - a perpetually-due hot loop.
+            const intervalFunction = sinon.spy(() => (task.callCount === 1 ? new Date(NaN) : new Date()));
+
+            await cronTask(taskId, intervalFunction, task);
+
+            await waitUntil(() => task.callCount >= 1, { timeoutMs: 3000, message: 'task ran at least once' });
+            await waitUntil(() => onError.callCount >= 1, { timeoutMs: 3000, message: 'onError fired' });
+            assert.match(onError.firstCall.args[0].message, /Invalid Date/);
+
+            await waitUntil(async () => (await getDocument(taskId)).lockedTill === null, { timeoutMs: 3000 });
+            const docAfter = await getDocument(taskId);
+            assert(docAfter.runSince.getTime() > Date.now(), 'runSince must back off, not become epoch 0');
+            assert.strictEqual(task.callCount, 1, 'the task must not hot-loop');
         });
 
         it('runs a task whose interval immediately returns a past date without error', async () => {

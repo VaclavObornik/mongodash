@@ -6,7 +6,7 @@ import { isEmpty, isEqual, matches, noop, pick, times, uniqueId } from 'lodash';
 import { Collection, UpdateFilter } from 'mongodb';
 import * as sinon from 'sinon';
 import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
-import { getNewInstance, wait } from './testHelpers';
+import { getNewInstance, wait, waitUntil } from './testHelpers';
 
 const debug = _debug('mongodash:cronTests:regression');
 
@@ -593,4 +593,81 @@ describe('cronTasks - regressions / internal invariants', () => {
             assert(onError.calledAfter(task), 'onError must fire after the handler entered');
         });
     });
+});
+
+/**
+ * Separate instance on purpose: the suite above registers cron tasks, which
+ * memoizes a SUCCESSFUL ensureIndex - the transient-failure path below needs
+ * a fresh module state where the memo is still empty.
+ */
+describe('cronTasks - transient index failure (regression)', () => {
+    const {
+        mongodash: { cronTask, getCollection, startCronTasks, stopCronTasks },
+        setOnError,
+        initInstance,
+        cleanUpInstance,
+    } = getNewInstance();
+
+    beforeAll(() => initInstance());
+    afterAll(async () => {
+        stopCronTasks();
+        await cleanUpInstance();
+    });
+
+    const sandbox = createSandbox();
+    afterEach(() => sandbox.verifyAndRestore());
+
+    /**
+     * Recovery invariant: cronTask() does not gate on createIndex. A transient
+     * createIndex failure (e.g. a primary election) must (1) not reject the
+     * registration, (2) not keep the scheduler from running the task (the
+     * lockedTill lock is correct without the indexes), and (3) reset the
+     * ensure-index memo so a later registration retries the index creation.
+     */
+    it('registration resolves, the task runs, and a later registration retries createIndex', async () => {
+        const collection: Collection<TaskDocument> = getCollection('cronTasks');
+
+        const onError = sandbox.spy();
+        setOnError(onError);
+
+        const indexError = new Error('transient createIndex failure');
+        const createIndexStub = sandbox.stub(collection, 'createIndex').callThrough();
+        createIndexStub.onFirstCall().rejects(indexError);
+
+        startCronTasks();
+
+        const distantFuture = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
+        let intervalCalls = 0;
+        const runOnceNow = () => (intervalCalls++ === 0 ? new Date() : distantFuture());
+
+        // (1) The registration must resolve despite the rejected createIndex...
+        let taskRuns = 0;
+        await cronTask('index-retry-task', runOnceNow, async () => {
+            taskRuns++;
+        });
+
+        // ...and the failure is reported instead of thrown.
+        assert(onError.calledWith(indexError), 'the index failure must be reported via onError');
+        const callsAfterFirstRegistration = createIndexStub.callCount;
+        assert(callsAfterFirstRegistration >= 1, 'createIndex must have been attempted');
+
+        // (2) The scheduler still picks the task up and runs it.
+        await waitUntil(() => taskRuns > 0, { timeoutMs: 10000, message: 'task did not run after the index failure' });
+
+        // (3) The memo was reset on failure: the next registration retries.
+        await cronTask('index-retry-task-2', distantFuture, () => undefined);
+        assert(
+            createIndexStub.callCount > callsAfterFirstRegistration,
+            `createIndex must be retried by a later registration (was ${callsAfterFirstRegistration}, now ${createIndexStub.callCount})`,
+        );
+
+        // The retry succeeded - both scheduler indexes exist now.
+        const indexes = await collection.listIndexes().toArray();
+        for (const name of ['runSinceIndex', 'runImmediatelyIndex']) {
+            assert(
+                indexes.some((index) => index.name === name),
+                `Index ${name} must exist after the retry`,
+            );
+        }
+    }, 20000);
 });
