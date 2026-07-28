@@ -42,6 +42,58 @@ describe('mongodash', () => {
         }
     }, 20000);
 
+    it('should reject pending registrations when init fails after the sub-systems were configured', async () => {
+        // Past the one-shot sub-system config a failed init() cannot be retried
+        // cleanly, so the initPromise must REJECT with the original error -
+        // otherwise every awaiting registration (cronTask, reactiveTask) hangs
+        // silently forever.
+        const instance = getNewInstance();
+
+        // There is no pure-config option that throws this late, so break the
+        // seam directly: initInternal calls initReactiveTasks AFTER
+        // subsystemsConfigured is set. The module registry is fresh (see
+        // getNewInstance), so this patch targets exactly this instance.
+
+        const reactiveModule = require('../src/reactiveTasks');
+        const originalInit = reactiveModule.init;
+        const bootError = new Error('reactive subsystem boot failure');
+        reactiveModule.init = () => {
+            throw bootError;
+        };
+
+        // The rejected initPromise is pre-handled in initPromise.ts; it must
+        // never surface as an unhandled rejection.
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+
+        try {
+            await assert.rejects(() => instance.initInstance(), /reactive subsystem boot failure/);
+
+            // A registration arriving after the failed init must reject with
+            // the original error - not hang on a forever-pending initPromise.
+            const outcome = await Promise.race([
+                instance.mongodash
+                    .cronTask('after-failed-init', 60000, async () => undefined)
+                    .then(
+                        () => 'resolved',
+                        (err: Error) => err,
+                    ),
+                new Promise((resolve) => setTimeout(() => resolve('hang'), 2000)),
+            ]);
+            assert(outcome instanceof Error, `cronTask registration should reject, got: ${outcome}`);
+            assert.strictEqual((outcome as Error).message, bootError.message);
+
+            // Let any stray rejection reach the process handler before asserting.
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            assert.deepStrictEqual(unhandled, [], 'the rejected initPromise must not emit unhandledRejection');
+        } finally {
+            process.removeListener('unhandledRejection', onUnhandled);
+            reactiveModule.init = originalInit;
+            await instance.cleanUpInstance();
+        }
+    }, 20000);
+
     it('should allow init to be retried after an invalid option', async () => {
         // Pure-config validation happens before any sub-system is handed its
         // one-shot config, so a typo does not consume the init guard and leave

@@ -237,6 +237,43 @@ describe('withTransaction', () => {
             assert.strictEqual(await collection.countDocuments(), 3, 'All documents should be inserted');
         });
 
+        it('should execute post-commit hooks exactly once when the driver retries the transaction callback', async () => {
+            // The driver re-invokes the whole callback on a
+            // TransientTransactionError. Hooks registered by the aborted first
+            // attempt must not fire in addition to the successful attempt's.
+            const { withTransaction, registerPostCommitHook, getMongoClient } = instance.mongodash;
+
+            // getNewInstance resets the module registry, so the instance uses a
+            // different copy of the driver than a top-level import here would.
+            // The retry gate is `instanceof MongoError` - the class must come
+            // from the instance's own registry or the label is never checked.
+
+            const { MongoError } = require('mongodb');
+
+            const collection = await getMongoClient().db().createCollection('transactionTests');
+            const hookSpy = sandbox.spy();
+            let attempts = 0;
+
+            await withTransaction(async (session: ClientSession) => {
+                attempts++;
+                await collection.insertOne({ attempt: attempts }, { session });
+                registerPostCommitHook(session, hookSpy);
+
+                if (attempts === 1) {
+                    // Thrown AFTER registering, so the driver aborts and retries
+                    // the whole callback (the label is what triggers the retry).
+                    const transientError = new MongoError('Simulated transient transaction error');
+                    transientError.addErrorLabel('TransientTransactionError');
+                    throw transientError;
+                }
+            });
+
+            assert.strictEqual(attempts, 2, 'The driver must have retried the callback');
+            assert.strictEqual(hookSpy.callCount, 1, 'The hook must fire exactly once after the final commit');
+            assert.strictEqual(await collection.countDocuments(), 1, 'Only the retried attempt may be committed');
+            assert.strictEqual(await collection.countDocuments({ attempt: 2 }), 1, 'The committed document comes from the second attempt');
+        });
+
         it('should handle synchronous post-commit hooks', async () => {
             const { withTransaction, registerPostCommitHook, getMongoClient } = instance.mongodash;
 
