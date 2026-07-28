@@ -11,9 +11,14 @@ const DEFAULT_PAGE_LIMIT = 50;
 /** Upper bound for a dashboard page; the endpoint is unauthenticated by design. */
 const MAX_PAGE_LIMIT = 500;
 
-/** Note `Number(x) || DEFAULT` also maps 0, '' and NaN to the default - and MongoDB reads `limit: 0` as unlimited. */
-const clampLimit = (value: unknown): number => Math.min(Math.max(Number(value) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
-const clampSkip = (value: unknown): number => Math.max(Number(value) || 0, 0);
+/** Floors and rejects non-finite input: `?skip=Infinity` would otherwise reach the driver. */
+const toFiniteInt = (value: unknown): number => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? n : 0;
+};
+/** Note `toFiniteInt(x) || DEFAULT` also maps 0, '' and NaN to the default - and MongoDB reads `limit: 0` as unlimited. */
+const clampLimit = (value: unknown): number => Math.min(Math.max(toFiniteInt(value) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+const clampSkip = (value: unknown): number => Math.max(toFiniteInt(value), 0);
 
 export class OperationalTaskController {
     constructor(private scheduler: ReactiveTaskScheduler) {}
