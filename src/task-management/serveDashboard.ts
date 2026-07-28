@@ -182,6 +182,13 @@ async function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
             settled = true;
             reject(err);
         });
+        // A client abort emits neither 'end' nor (reliably) 'error'; without
+        // this the promise stays pending and the request handler leaks.
+        req.on('close', () => {
+            if (settled) return;
+            settled = true;
+            reject(httpError(400, 'Request aborted before the body was received'));
+        });
     });
 }
 

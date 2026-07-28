@@ -26,7 +26,7 @@ export type WithLockOptions = {
 const lockAcquiredMessage = 'The lock is already acquired.';
 const expirationKey = 'expiresAt';
 
-let collectionPromise: Promise<Collection<LockDocument>>;
+let collectionPromise: Promise<Collection<LockDocument>> | null = null;
 async function getLockerCollection() {
     if (!collectionPromise) {
         const setup = (async () => {
@@ -40,8 +40,6 @@ async function getLockerCollection() {
             // Only clear if we are still the current memo, so a stale rejection
             // does not wipe a newer setup started by reset() + a concurrent call.
             if (collectionPromise === setup) {
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore reset so the next call retries the setup
                 collectionPromise = null;
             }
             throw err;
@@ -52,8 +50,6 @@ async function getLockerCollection() {
 }
 
 export function reset(): void {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
     collectionPromise = null;
 }
 
