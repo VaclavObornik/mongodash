@@ -56,7 +56,7 @@ describe('ConcurrentRunner', () => {
         expect(maxRunning).toBeLessThanOrEqual(2);
     });
 
-    it.each([[0], [-3], [NaN], [1.9]])('clamps a misconfigured concurrency (%p) to at least one worker', async (concurrency) => {
+    it.each([[-3], [NaN], [1.9]])('clamps a misconfigured concurrency (%p) to at least one worker', async (concurrency) => {
         runner = new ConcurrentRunner({ concurrency: concurrency as number });
         runner.registerSource('col1', { minPollMs: 10, maxPollMs: 100, jitterMs: 0 });
 
@@ -66,8 +66,21 @@ describe('ConcurrentRunner', () => {
         });
 
         await sleep(50);
-        // Without the clamp, 0/negative/NaN would spawn zero workers and callCount stays 0.
+        // Without the clamp, negative/NaN would spawn zero workers and callCount stays 0.
         expect(callCount).toBeGreaterThan(0);
+    });
+
+    it('an explicit concurrency of 0 runs no workers (pre-2.9.0 planner-only semantics)', async () => {
+        runner = new ConcurrentRunner({ concurrency: 0 });
+        runner.registerSource('col1', { minPollMs: 10, maxPollMs: 100, jitterMs: 0 });
+
+        let callCount = 0;
+        runner.start(async () => {
+            callCount++;
+        });
+
+        await sleep(50);
+        expect(callCount).toBe(0);
     });
 
     it('should speed up execution', async () => {
