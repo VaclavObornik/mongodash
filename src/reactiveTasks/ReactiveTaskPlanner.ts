@@ -257,7 +257,11 @@ export class ReactiveTaskPlanner {
                     message: `Change Stream closed.`,
                     code: CODE_REACTIVE_TASK_PLANNER_STOPPED,
                 });
-                if (!this.isStopping) {
+                // The identity check guards against late/duplicate 'close'
+                // emissions from a deliberately retired stream (driver 4.x emits
+                // 'close' twice, once after isStopping is already reset) - only
+                // an unexpected close of the CURRENT stream may trigger a restart.
+                if (!this.isStopping && this.changeStream === stream) {
                     this.callbacks.onStreamError();
                 }
             });

@@ -1,9 +1,9 @@
 import * as _debug from 'debug';
-import { ModifyResult, MongoClientClosedError } from 'mongodb';
+import { ModifyResult } from 'mongodb';
 import { GlobalsCollection } from '../globalsCollection';
 import { defaultOnError, OnError } from '../OnError';
 import { defaultOnInfo, OnInfo } from '../OnInfo';
-import { CODE_REACTIVE_TASK_LEADER_LOCK_LOST, MetaDocument, REACTIVE_TASK_META_DOC_ID } from './ReactiveTaskTypes';
+import { CODE_REACTIVE_TASK_LEADER_LOCK_LOST, isClientClosedError, MetaDocument, REACTIVE_TASK_META_DOC_ID } from './ReactiveTaskTypes';
 
 const debug = _debug('mongodash:reactiveTasks:leader');
 
@@ -223,7 +223,7 @@ export class LeaderElector {
                 }
             }
         } catch (error) {
-            const closedErrorAfterStop = !this.isRunning && error instanceof MongoClientClosedError;
+            const closedErrorAfterStop = !this.isRunning && isClientClosedError(error);
             if (!closedErrorAfterStop) {
                 this.onError(error as Error);
             }

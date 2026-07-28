@@ -88,8 +88,13 @@ describe('legacy (pre-2.3.1) task record migration', () => {
     const read = async (id: ObjectId) => (await API.getCollection(tasksCollectionName).findOne({ _id: id } as never)) as unknown as Record<string, unknown>;
 
     it('never re-executes historical completed/failed records', async () => {
-        // Give the workers ample opportunity to (wrongly) claim them.
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // Anchor on the positive signal first (slow CI runners may need a
+        // while), then give the workers a bounded window to (wrongly) claim
+        // the terminal records.
+        await waitUntil(() => handlerCalls.includes(String(srcPending)) && handlerCalls.includes(String(srcProcessing)), {
+            timeoutMs: 20000,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 800));
 
         const completed = await read(completedId);
         expect(completed.nextRunAt).toBeNull(); // stays out of the polling index
@@ -314,7 +319,10 @@ describe('legacy straggler self-heal via the planning pipeline', () => {
         await API.getCollection(sourceCollectionName).insertOne({ _id: srcId } as never);
 
         // The straggler exactly as a pre-2.3.1 instance writes it: scheduledAt,
-        // NO nextRunAt - invisible to the polling query until healed.
+        // NO nextRunAt - invisible to the polling query until healed. Seeding
+        // lastObservedValues to match the source doc ($$ROOT projection) makes
+        // hasChanged false, so ONLY the dedicated self-heal branch can set
+        // nextRunAt - without it this record is stranded and the test times out.
         await API.getCollection(tasksCollectionName).insertOne({
             _id: stragglerId,
             task: taskName,
@@ -324,6 +332,7 @@ describe('legacy straggler self-heal via the planning pipeline', () => {
             scheduledAt: past,
             createdAt: past,
             updatedAt: past,
+            lastObservedValues: { _id: srcId },
         } as never);
 
         // The collection is ALREADY marked migrated, so the one-time migration
@@ -357,5 +366,5 @@ describe('legacy straggler self-heal via the planning pipeline', () => {
         // of the one-time migration: the migration $unsets scheduledAt, the
         // whenMatched branch leaves it in place.
         expect((await read()).scheduledAt).toEqual(past);
-    }, 30000);
+    }, 60000);
 });
