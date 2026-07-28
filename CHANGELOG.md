@@ -1,4 +1,4 @@
-# [2.9.0](https://github.com/VaclavObornik/mongodash/compare/v2.8.0...v2.9.0)
+## [2.9.0](https://github.com/VaclavObornik/mongodash/compare/v2.8.0...v2.9.0) (2026-07-28)
 
 
 Production-readiness hardening across cron tasks, reactive tasks, locks and the
@@ -10,19 +10,29 @@ Each of these replaces a silent misbehaviour with a loud one, so an app that
 appeared to work on 2.8.0 can now fail fast:
 
 1. **Invalid intervals now throw at registration.** A non-positive `cronTask`
-   interval (`0`, `'0s'`, `'-1h'`, or a function returning a past time) used to
-   busy-loop a worker; it is now rejected. A dynamic interval that returns a
-   past date is nudged to the near future instead of spinning (a legitimately
-   near occurrence is left alone, so a per-second CRON does not drift).
+   interval (`0`, `'0s'`, `'-1h'`) used to busy-loop a worker; it is now
+   rejected. A dynamic interval (a function) that resolves to a past date is
+   *not* rejected — it is nudged to run ~200ms in the future instead of
+   spinning (a legitimately near occurrence is left alone, so a per-second CRON
+   does not drift). A dynamic interval that throws, or returns an Invalid Date,
+   is rejected at registration the same as a bad static interval. If it throws
+   or returns an Invalid Date later — while rescheduling the next run after the
+   task finishes — it now reports the error via `onError` and backs off ~5s,
+   instead of leaving a stale `runSince` that re-runs the just-finished handler
+   on every lock expiry.
    **This also covers `reactiveTaskCleanupInterval`** — a zero or negative
    value there now throws from `init()`.
 2. **Invalid reactive-task filters now throw at registration.** An unsupported
    operator nested under `$and`/`$or`/`$nor` (e.g. `$elemMatch`) used to be
    accepted and then crash-loop the shared change stream at runtime.
-3. **`reactiveTaskConcurrency` is clamped to at least 1.** `0`/`NaN` previously
-   started zero workers and processed nothing, silently. If you relied on `0`
-   as an undocumented "disable workers" switch, do not start reactive tasks on
-   that instance instead. (Cron already clamped this way.)
+3. **`reactiveTaskConcurrency` misconfigurations are clamped to at least 1
+   worker.** `NaN`, negative, and fractional values previously started zero
+   workers and processed nothing, silently; they now clamp up to 1. An
+   explicit `0` is unchanged: it still starts zero workers on that instance,
+   and is the supported way to run a planner-only instance (the planner and
+   leader election keep running). Cron has no such escape hatch —
+   `cronTaskConcurrency` always clamps to at least 1, including an explicit
+   `0`.
 4. **Tasks filtering on `$regex` or `$size` reconcile once on first start.**
    Those operators now compile to type-guarded expressions (so a missing or
    mistyped field no longer aborts the whole pipeline). The compiled filter is
@@ -32,6 +42,11 @@ appeared to work on 2.8.0 can now fail fast:
    it is a real scan — and it stacks with the leader-lock note below. To skip
    it, register those tasks with `evolution: { reconcileOnTriggerChange: false }`
    for the first 2.9.0 deploy.
+5. **Dashboard/operational-API pagination is capped at 500 items per page.**
+   `OperationalTaskController`'s list endpoints (used by the bundled dashboard)
+   now clamp `limit` to the range 1–500, and `limit=0` no longer means
+   "unlimited" — it falls back to the default page size (50) instead. The
+   public `getReactiveTasks()` / `getCronTasksList()` functions are unchanged.
 
 **Pre-2.3.1 upgraders:** task records written before 2.3.1 (`scheduledAt` /
 `initialScheduledAt`) are migrated once, by the leader, to `nextRunAt` / `dueAt`
@@ -60,11 +75,16 @@ stranded.
 * **reactive-tasks:** key the change-stream batch by collection+_id (cross-collection _id collisions no longer drop a task); serialize flushes so a heartbeat cannot advance the resume token past un-planned events
 * **reactive-tasks:** CAS guards on finalize/defer prevent a completed task being reverted and re-run; a status-aware, leader-run migration heals pre-2.3.1 records (`scheduledAt`→`nextRunAt`) that would otherwise never run, while parking terminal records so they are never replayed
 * **reactive-tasks:** `hasError:false` now matches completed tasks; queue-depth/lag gauges reset so drained queues stop firing false alerts
+* **reactive-tasks:** workers never claim a task record that is already in a terminal status (`completed`/`failed`), closing a mixed-version race
+* **reactive-tasks:** reconciliation self-heals a legacy (pre-2.3.1) record even after the one-time migration has already run for that collection
+* **reactive-tasks:** the one-time legacy migration now reports its own `CODE_REACTIVE_TASK_LEGACY_MIGRATION` event code instead of reusing `CODE_REACTIVE_TASK_PLANNER_STARTED`
+* **reactive-tasks:** a transactional `markCompleted()` followed by `deferCurrent()` no longer drops the pending success metric sample
 * **leader-elector:** release the lock when leader startup fails (no cluster-wide planning halt) and synchronize stop with an in-flight election
 * **cron:** a transient index-creation failure no longer permanently wedges the scheduler; reject non-positive intervals that would hot-loop a worker
-* **concurrent-runner:** clamp concurrency to at least one worker (a NaN/0 config silently ran nothing)
+* **concurrent-runner:** clamp misconfigured concurrency (NaN/negative/fractional) to at least one worker; an explicit `0` still runs no workers, unchanged
 * **api:** retryable `init()`, self-healing `withLock` index setup, crash-safe async error handlers, single-fire post-commit hooks on transaction retry
 * **api:** dashboard hardened against path traversal, unbounded request bodies, and file-read crashes
+* **api:** `init()` failing after the point of no retry now rejects pending `cronTask`/`reactiveTask` registrations with the real error, instead of leaving them awaiting `initPromise` forever
 
 ## [1.7.1](https://github.com/VaclavObornik/mongodash/compare/v1.7.0...v1.7.1) (2025-12-27)
 

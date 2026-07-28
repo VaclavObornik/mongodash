@@ -104,7 +104,8 @@ Root `mongodash`:
 - Lock: `withLock`, `LockAlreadyAcquiredError`, `isLockAlreadyAcquiredError`,
   `WithLockOptions`.
 - Transaction: `withTransaction`, `PostCommitHook`, `registerPostCommitHook`.
-- Utility: `processInBatches`, `getCollection`, `getMongoClient`.
+- Utility: `processInBatches`, `getCollection`, `getMongoClient`,
+  `OperationalTaskController`, `serveDashboard`.
 - Event codes: `CODE_REACTIVE_TASK_*` (many), `CODE_CRON_TASK_*` (4).
   Every emitted code must be an exported constant - do not emit bare string
   literals (2.9.0 promoted `CODE_REACTIVE_TASK_THREW_AFTER_COMPLETION` and

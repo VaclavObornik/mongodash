@@ -53,9 +53,9 @@ The system exposes the following metrics with standardized labels:
 
 | Metric Name | Type | Labels | Description |
 | :--- | :--- | :--- | :--- |
-| `reactive_tasks_duration_seconds` | Histogram | `task_name`, `status` | Distribution of task processing time (success/failure). One execution can contribute both a `success` and a `failed` sample in a single case: `markCompleted({ session })` records the success when it runs, and if the surrounding transaction then aborts, the retry path records the failure. |
+| `reactive_tasks_duration_seconds` | Histogram | `task_name`, `status` | Distribution of task processing time (success/failure). Each execution records exactly one sample. For a transactional `markCompleted({ session })`, the success sample is held back until the handler returns - i.e. until the transaction has actually committed. If the transaction aborts, only the retry's outcome is recorded, not a success. |
 | `reactive_tasks_retries_total` | Counter | `task_name` | Total number of retries attempted. |
-| `reactive_tasks_queue_depth` | Gauge | `task_name`, `status` | Current number of tasks in the queue, grouped by status (`pending`, `processing`, `processing_dirty`, `failed`). |
+| `reactive_tasks_queue_depth` | Gauge | `task_name`, `status` | Current number of tasks in the queue, grouped by status (`pending`, `processing`, `processing_dirty`, `completed`, `failed`). `completed` records stay in this count until the cleanup policy removes them. |
 | `reactive_tasks_global_lag_seconds` | Gauge | `task_name` | Age of the oldest `pending` task, measured from `dueAt`. This ensures deferred tasks still reflect their true waiting time. |
 | `reactive_tasks_change_stream_lag_seconds` | Gauge | *none* | Time difference between now and the last processed Change Stream event. |
 | `reactive_tasks_last_reconciliation_timestamp_seconds` | Gauge | *none* | Timestamp when the last full reconciliation (recovery) finished. |

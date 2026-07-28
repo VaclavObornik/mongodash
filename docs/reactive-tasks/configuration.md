@@ -42,6 +42,8 @@ await mongodash.init({
     
     // Concurrency: Number of parallel workers on the *current instance* (default: 5)
     // Total system concurrency = (reactiveTaskConcurrency * number of instances)
+    // Set to 0 to run no workers on this instance - the planner and leader
+    // election still run, so it can act as a planner-only instance.
     reactiveTaskConcurrency: 10,
     
     // Globals Collection: Used for coordination and leadership (default: '_mongodash_globals')
