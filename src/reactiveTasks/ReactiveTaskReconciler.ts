@@ -1,5 +1,5 @@
 import * as _debug from 'debug';
-import { Document } from 'mongodb';
+import { Document, MongoClientClosedError } from 'mongodb';
 import { GlobalsCollection } from '../globalsCollection';
 import { defaultOnError, OnError } from '../OnError';
 import { OnInfo } from '../OnInfo';
@@ -174,6 +174,11 @@ export class ReactiveTaskReconciler {
                 await this.globalsCollection.updateOne({ _id: REACTIVE_TASK_META_DOC_ID }, update, { upsert: true });
             } catch (error) {
                 debug(`[Scheduler ${this.instanceId}] Error reconciling collection: ${entry.tasksCollection.collectionName}`, error);
+                // A closed client after a requested stop is the normal shutdown
+                // race, not an operator-visible failure (same rule as LeaderElector).
+                if (shouldStop() && error instanceof MongoClientClosedError) {
+                    return;
+                }
                 // Surface the failure. Reconciliation is the recovery mechanism
                 // after oplog loss (code 280); a silently-swallowed error means
                 // missed tasks with zero operator visibility. The task is left

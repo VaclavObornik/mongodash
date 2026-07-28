@@ -32,41 +32,15 @@ export class ReactiveTaskRepository<T extends Document> {
         private onInfo: OnInfo = defaultOnInfo,
         private onError: OnError = defaultOnError,
     ) {
-        this.initPromise = this.init();
-    }
-
-    private async init(): Promise<void> {
-        await this.ensureIndexes();
+        this.initPromise = this.ensureIndexes();
     }
 
     /**
-     * Backward compatibility: versions before 2.3.1 stored the poll time in
-     * `scheduledAt` and the baseline in `initialScheduledAt`; these were renamed
-     * to `nextRunAt` / `dueAt`. Records written by those versions have no
-     * `nextRunAt`, so the polling query (`nextRunAt: { $type: 'date' }`) and its
-     * partial index never see them and their tasks would silently never run
-     * again. This idempotent migration heals such records.
-     *
-     * The mapping is status-aware, because the two schemas encode "not
-     * runnable" differently. Pre-2.3.1 finalize LEFT a past `scheduledAt` on
-     * completed / terminally-failed records and the old polling query excluded
-     * them with `status: { $in: ['pending', 'processing_dirty'] }`. The current
-     * query has no status filter and relies on `nextRunAt: null` instead, so
-     * copying `scheduledAt` verbatim would make every historical record due and
-     * re-execute its handler:
-     * - completed / failed -> `null` (stay out of the polling index)
-     * - processing         -> the old visibility deadline (`lockExpiresAt`), so
-     *                         zombie recovery keeps working
-     * - pending / dirty    -> `scheduledAt` (unchanged semantics)
-     *
-     * `dueAt` is derived as `initialScheduledAt ?? scheduledAt`, mirroring the
-     * pre-2.3.1 baseline (`initialScheduledAt` was only written on defer/retry),
-     * so global-lag stays correct for legacy records that never deferred.
-     *
-     * Returns the number of migrated records. Orchestrated once per cluster by
-     * the planner (leader) - see ReactiveTaskPlanner.migrateLegacyTaskRecords -
-     * because the matching query cannot use `polling_idx` and would otherwise
-     * be a collection scan on every startup of every instance.
+     * Heals pre-2.3.1 records (`scheduledAt` schema): without `nextRunAt` the
+     * polling query never sees them. The mapping is status-aware - a verbatim
+     * copy would re-run every historical record (see the 2.9.0 upgrade notes in
+     * CHANGELOG.md). Run once per cluster by the leader via
+     * ReactiveTaskPlanner.migrateLegacyTaskRecords (the query is a collection scan).
      */
     public async migrateLegacyScheduledFields(): Promise<number> {
         const result = await this.tasksCollection.updateMany(
@@ -78,16 +52,15 @@ export class ReactiveTaskRepository<T extends Document> {
                             $switch: {
                                 branches: [
                                     { case: { $in: ['$status', ['completed', 'failed']] }, then: null },
-                                    // Both in-flight states keep the old visibility
-                                    // deadline: during a mixed rolling upgrade a
-                                    // pre-2.3.1 worker may still own the record, and
-                                    // a past nextRunAt would let a 2.9.0 worker claim
-                                    // it immediately and run it twice.
+                                    // In-flight records keep the old visibility deadline: a
+                                    // pre-2.3.1 worker may still own them during a rolling
+                                    // upgrade; a past nextRunAt would double-run the task.
                                     { case: { $in: ['$status', ['processing', 'processing_dirty']] }, then: { $ifNull: ['$lockExpiresAt', '$scheduledAt'] } },
                                 ],
                                 default: '$scheduledAt',
                             },
                         },
+                        // Baseline mirrors pre-2.3.1: initialScheduledAt was only written on defer/retry.
                         dueAt: { $ifNull: ['$initialScheduledAt', '$scheduledAt'] },
                     },
                 },
@@ -104,6 +77,9 @@ export class ReactiveTaskRepository<T extends Document> {
         const filter: Filter<ReactiveTaskRecord<T>> = {
             task: { $in: taskDefs.map((c) => c.task) },
             nextRunAt: { $lte: now, $type: 'date' },
+            // Terminal records can carry a dated nextRunAt in a mixed-version
+            // window (a pre-2.3.1 finalize cannot null it) - never re-claim them.
+            status: { $nin: ['completed', 'failed'] },
         };
 
         const update: UpdateFilter<ReactiveTaskRecord<T>> = {

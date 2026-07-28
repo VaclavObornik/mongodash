@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { CODE_REACTIVE_TASK_DEFER_IGNORED } from '../../src';
 import { waitUntil } from '../../src/testing';
 import { getNewInstance, wait } from '../testHelpers';
 
@@ -202,6 +203,60 @@ describe('Reactive Task Transactions', () => {
         const task = await tasksCollection.findOne({ task: 'idempotent-check', sourceDocId: courseId });
         expect(task?.status).toBe('completed');
     });
+
+    it('records the success duration sample when deferCurrent() is ignored after a transactional markCompleted', async () => {
+        // A transactional markCompleted() holds its duration sample until the
+        // handler returns (the transaction could still abort). When the handler
+        // ALSO called deferCurrent(), the DEFER_IGNORED early-return must flush
+        // that pending sample instead of dropping it.
+        const infoCodes: string[] = [];
+        await instance.initInstance({
+            monitoring: { enabled: true, scrapeMode: 'local' },
+            onInfo: ({ code }: { code: string }) => infoCodes.push(code),
+        } as never);
+        const collection = instance.mongodash.getCollection(SOURCE_COLLECTION);
+        const courseId = new ObjectId();
+        await collection.insertOne({ _id: courseId });
+
+        await instance.mongodash.reactiveTask({
+            collection: SOURCE_COLLECTION,
+            task: 'defer-after-complete',
+            handler: async (context: any) => {
+                const client = instance.mongodash.getMongoClient();
+                const session = client.startSession();
+                try {
+                    await session.withTransaction(async () => {
+                        await context.markCompleted({ session });
+                    });
+                } finally {
+                    await session.endSession();
+                }
+                context.deferCurrent(60000); // ignored - the completion wins
+            },
+        });
+
+        await instance.mongodash.startReactiveTasks();
+
+        // The DEFER_IGNORED branch runs after the handler returned, i.e. after
+        // the transaction committed - exactly where the sample must be flushed.
+        await waitUntil(() => infoCodes.includes(CODE_REACTIVE_TASK_DEFER_IGNORED), { timeoutMs: 15000, pollIntervalMs: 100 });
+
+        const task = await instance.mongodash.getCollection(`${SOURCE_COLLECTION}_tasks`).findOne({ task: 'defer-after-complete', sourceDocId: courseId });
+        expect(task?.status).toBe('completed');
+
+        const registry = await instance.mongodash.getPrometheusMetrics();
+        expect(registry).not.toBeNull();
+        const json = await registry!.getMetricsAsJSON();
+        const duration = json.find((metric: any) => metric.name === 'reactive_tasks_duration_seconds') as any;
+        expect(duration).toBeDefined();
+
+        const countSamples = duration.values.filter(
+            (value: any) => value.metricName === 'reactive_tasks_duration_seconds_count' && value.labels?.task_name === 'defer-after-complete',
+        );
+        const successCount = countSamples.find((value: any) => value.labels.status === 'success');
+        expect(successCount?.value).toBeGreaterThanOrEqual(1);
+        expect(countSamples.find((value: any) => value.labels.status === 'failed')).toBeUndefined();
+    }, 30000);
 
     it('keeps the task completed when the handler throws after a non-transactional markCompleted', async () => {
         // Counterpart to the aborted-transaction case above: here the completion

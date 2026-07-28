@@ -84,18 +84,10 @@ export class LeaderElector {
             this.leaderTimer = null;
         }
 
-        // Wait for any election round already in flight to settle. Without this,
-        // a tryAcquireLock() that was mid-round when stop() ran could resolve
-        // AFTER we checked _isLeader, acquire leadership, and leave the DB lock
-        // held (blocking handoff for a full TTL) and the change stream running.
-        //
-        // The wait is BOUNDED: a round that has progressed into onBecomeLeader
-        // runs the whole leader-startup path (legacy migration, evolution check,
-        // change stream, initial reconcile), which on a large deployment takes
-        // far longer than a SIGTERM grace period. Giving up early is safe -
-        // tryAcquireLock re-checks isRunning after its write and releases the
-        // lock itself - so this await only needs to cover the common case where
-        // the round is a single in-flight round-trip.
+        // Wait (bounded) for an in-flight election round: a mid-round acquire
+        // could otherwise finish after stop() and leave the DB lock held for a
+        // full TTL. Giving up early is safe - tryAcquireLock re-checks
+        // isRunning after its write and releases the lock itself.
         if (this.currentLoopPromise) {
             try {
                 await Promise.race([this.currentLoopPromise, delay(STOP_WAIT_MS)]);

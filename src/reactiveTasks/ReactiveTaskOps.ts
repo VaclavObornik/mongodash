@@ -103,15 +103,10 @@ export class ReactiveTaskOps {
                         debug(`Duplicate key during planning for ${collectionName} (benign race), retry ${attempt}.`);
                         continue;
                     }
-                    // Persisting past the retries is no longer "benign" in any
-                    // useful sense: $merge is not atomic across documents, so an
-                    // abort can leave part of the batch unwritten. Swallowing it
-                    // would let the caller advance its resume token / checkpoint
-                    // past documents that were never planned - silent loss that
-                    // only a later full reconcile could heal. Fail the flush
-                    // instead: the token stays put and the batch is replayed.
-                    // The flapping this could cause is bounded, since getting
-                    // here needs `maxAttempts` consecutive collisions.
+                    // Past the retries this is no longer benign: $merge is not
+                    // atomic, so swallowing would advance the resume token past
+                    // unplanned documents (silent loss). Fail the flush - the
+                    // token stays put and the batch replays.
                     throw new Error(
                         `ReactiveTasks: planning for '${collectionName}' still hit a duplicate key after ${attempt} attempts; ` +
                             `not all tasks in this batch could be planned. Original: ${(error as Error)?.message}`,
@@ -244,16 +239,38 @@ export class ReactiveTaskOps {
                                     },
                                 },
                                 nextRunAt: {
-                                    $cond: {
-                                        if: '$hasChanged',
-                                        then: {
-                                            $cond: {
-                                                if: { $in: ['$status', ['processing', 'processing_dirty']] },
-                                                then: '$nextRunAt',
-                                                else: '$$new.nextRunAt',
+                                    $switch: {
+                                        branches: [
+                                            // Self-heal a legacy straggler: a pre-2.3.1 record written
+                                            // after the one-time migration ran has no dated nextRunAt and
+                                            // is invisible to polling. Same mapping as migrateLegacyScheduledFields.
+                                            {
+                                                case: {
+                                                    $and: [
+                                                        { $ne: [{ $type: '$nextRunAt' }, 'date'] },
+                                                        { $not: [{ $in: ['$status', ['completed', 'failed']] }] },
+                                                    ],
+                                                },
+                                                then: {
+                                                    $cond: {
+                                                        if: { $in: ['$status', ['processing', 'processing_dirty']] },
+                                                        then: { $ifNull: ['$lockExpiresAt', '$$new.nextRunAt'] },
+                                                        else: '$$new.nextRunAt',
+                                                    },
+                                                },
                                             },
-                                        },
-                                        else: '$nextRunAt',
+                                            {
+                                                case: '$hasChanged',
+                                                then: {
+                                                    $cond: {
+                                                        if: { $in: ['$status', ['processing', 'processing_dirty']] },
+                                                        then: '$nextRunAt',
+                                                        else: '$$new.nextRunAt',
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                        default: '$nextRunAt',
                                     },
                                 },
                                 attempts: {

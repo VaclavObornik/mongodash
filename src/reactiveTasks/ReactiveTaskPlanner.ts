@@ -19,6 +19,7 @@ import { ReactiveTaskOps } from './ReactiveTaskOps';
 import { ReactiveTaskReconciler } from './ReactiveTaskReconciler';
 import { ReactiveTaskRegistry } from './ReactiveTaskRegistry';
 import {
+    CODE_REACTIVE_TASK_LEGACY_MIGRATION,
     CODE_REACTIVE_TASK_PLANNER_RECONCILIATION_STARTED,
     CODE_REACTIVE_TASK_PLANNER_STARTED,
     CODE_REACTIVE_TASK_PLANNER_STOPPED,
@@ -617,25 +618,12 @@ export class ReactiveTaskPlanner {
     }
 
     /**
-     * Migration of records written before 2.3.1 (`scheduledAt` /
-     * `initialScheduledAt` -> `nextRunAt` / `dueAt`); see
-     * ReactiveTaskRepository.migrateLegacyScheduledFields for the mapping.
-     *
-     * Gated on markers in the meta doc because the matching query
-     * (`nextRunAt: { $exists: false }`) is the complement of the partial
-     * `polling_idx` and therefore always a collection scan. Running it here -
-     * on the leader - keeps it off every instance's startup path, where it
-     * would also block task registration via the repository initPromise.
-     *
-     * The markers are PER TASK COLLECTION, not one cluster-wide flag: a leader
-     * can only migrate the collections whose tasks are registered on its own
-     * instance, so a heterogeneous deployment (or a task added after the first
-     * upgraded leader started) would otherwise have its records skipped
-     * forever. Each collection is marked as soon as it succeeds, so partial
-     * progress survives and a later leader picks up whatever is left.
-     *
-     * Best-effort: a failure is reported and must not stop the planner (legacy
-     * records stay invisible, exactly as before this migration existed).
+     * One-time migration of pre-2.3.1 records (mapping: ReactiveTaskRepository.
+     * migrateLegacyScheduledFields). Leader-run and marker-gated PER TASK
+     * COLLECTION in the meta doc: the query is always a collection scan (must
+     * stay off instance startup), and a leader only sees its own registered
+     * collections - per-collection markers let a later leader finish the rest.
+     * Best-effort: a failure is reported and must not stop the planner.
      */
     private async migrateLegacyTaskRecords(): Promise<void> {
         try {
@@ -667,7 +655,7 @@ export class ReactiveTaskPlanner {
             if (migrated > 0) {
                 this.onInfo({
                     message: `Migrated ${migrated} legacy reactive task record(s) from 'scheduledAt' to 'nextRunAt'.`,
-                    code: CODE_REACTIVE_TASK_PLANNER_STARTED,
+                    code: CODE_REACTIVE_TASK_LEGACY_MIGRATION,
                     migrated,
                 });
             }

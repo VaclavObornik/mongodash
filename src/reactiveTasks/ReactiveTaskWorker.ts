@@ -302,6 +302,12 @@ export class ReactiveTaskWorker {
 
             if (deferredTo) {
                 if (isManuallyFinalized) {
+                    if (pendingSuccessSample !== null) {
+                        // The handler returned, so a transactional markCompleted()
+                        // committed; the ignored defer must not drop its sample.
+                        this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', pendingSuccessSample);
+                        pendingSuccessSample = null;
+                    }
                     onInfo({
                         message: `[ReactiveTask] Task '${taskRecord.task}' (ID: ${taskRecord._id}) was manually marked as completed, but deferCurrent() was also called. Ignoring defer request.`,
                         code: CODE_REACTIVE_TASK_DEFER_IGNORED,
