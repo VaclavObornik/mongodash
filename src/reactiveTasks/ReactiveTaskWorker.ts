@@ -389,8 +389,13 @@ export class ReactiveTaskWorker {
                 // The completion is durable (the status CAS refused to revert a
                 // record that is no longer processing) and the handler threw
                 // afterwards. Nothing was stolen, so reporting lock-lost would
-                // be wrong, and the success metric already stands. The throw
-                // itself has already reached onError.
+                // be wrong. The throw itself has already reached onError.
+                if (pendingSuccessSample !== null) {
+                    // Transactional markCompleted(): its sample is still pending
+                    // and the completion committed - the throw must not drop it.
+                    this.metricsCollector?.recordTaskExecution(taskRecord.task, 'success', pendingSuccessSample);
+                    pendingSuccessSample = null;
+                }
                 onInfo({
                     message: `Reactive task '${taskRecord.task}' threw after markCompleted(); the task stays completed and is not retried.`,
                     taskId: taskRecord._id.toString(),
