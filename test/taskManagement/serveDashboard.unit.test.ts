@@ -343,5 +343,24 @@ describe('serveDashboard Integration Tests', () => {
             expect((req as any).pause).toHaveBeenCalled();
             expect((req as any).destroy).not.toHaveBeenCalled();
         });
+
+        it('settles instead of hanging when the client aborts before the body ends', async () => {
+            const scheduler = (API as any)._scheduler;
+            req.method = 'POST';
+            req.url = '/api/reactive/retry';
+            (req as any).pause = jest.fn();
+            const on = req.on as jest.Mock;
+
+            const promise = serveDashboard(req as IncomingMessage, res as ServerResponse, { scheduler });
+            const closeHandler = on.mock.calls.find((c) => c[0] === 'close')?.[1];
+            expect(closeHandler).toBeDefined();
+            // The client disconnects: no 'end', no 'error', just 'close'. The
+            // handler must settle via the error path, not stay pending forever.
+            closeHandler();
+
+            const handled = await Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve('hung'), 2000))]);
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(400);
+        });
     });
 });
