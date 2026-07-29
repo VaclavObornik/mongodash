@@ -1,3 +1,16 @@
+## [2.9.1](https://github.com/VaclavObornik/mongodash/compare/v2.9.0...v2.9.1) (2026-07-29)
+
+Maintenance release — no library code changes ([#477](https://github.com/VaclavObornik/mongodash/pull/477)).
+
+- Dev toolchain refresh consolidating all open dependabot bumps: TypeScript 6,
+  ESLint 10, vite 8 for the dashboard build, and transitive security updates
+  (undici, shell-quote, fast-uri, tar, npm, js-yaml).
+- The compiled library output is byte-identical to 2.9.0 (verified by diff).
+  Only the bundled dashboard HTML is rebuilt (vite 8 / rolldown); it was
+  verified end-to-end at runtime.
+- Runtime dependencies and peer ranges (`mongodb >=4`, `prom-client >=14`)
+  are unchanged, so there is nothing to migrate.
+
 ## [2.9.0](https://github.com/VaclavObornik/mongodash/compare/v2.8.0...v2.9.0) (2026-07-28)
 
 
