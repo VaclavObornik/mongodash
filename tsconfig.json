@@ -10,9 +10,16 @@
         "sourceMap": true,
         "declaration": true,
         "allowSyntheticDefaultImports": true,
+        // TS 6.0 flipped esModuleInterop's default; keep the legacy value so the
+        // emitted dist stays identical (namespace-import-call pattern, no helpers).
+        "esModuleInterop": false,
+        // TS 6.0 stopped auto-including every package under typeRoots.
+        "types": [
+            "node"
+        ],
+        "ignoreDeprecations": "6.0",
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
-        "downlevelIteration": true,
         "listFiles": false,
         "declarationDir": "./dist/types",
         "outDir": "./dist/lib",
