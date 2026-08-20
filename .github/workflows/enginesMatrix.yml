@@ -43,6 +43,11 @@ jobs:
           mongodb-version: ${{ matrix.mongodb-version }}
           mongodb-replica-set: rs0
 
+      # Node 20 bundles npm 10, which resolves the lockfile differently than the npm 11
+      # the other workflows use; one npm generation across CI keeps npm ci deterministic.
+      - name: use npm 11
+        run: npm install -g npm@11
+
       - name: npm ci
         run: npm ci
 
