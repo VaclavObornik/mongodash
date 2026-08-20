@@ -1,3 +1,20 @@
+## [2.9.2](https://github.com/VaclavObornik/mongodash/compare/v2.9.1...v2.9.2) (2026-08-20)
+
+Security patch ([#486](https://github.com/VaclavObornik/mongodash/pull/486)).
+
+- **Prototype pollution in `watchProjection` compilation.** A reactive-task
+  `watchProjection` key containing a `__proto__`, `constructor` or `prototype`
+  path segment (e.g. `{'constructor.prototype.x': 1}`) polluted
+  `Object.prototype` while dotted keys were unflattened. Such keys are now
+  rejected at task registration with a clear error, and the unflattening walk
+  only traverses own properties. Projections are developer-supplied task
+  configuration, so the practical risk is limited to apps that build projection
+  keys from untrusted input — upgrading is still recommended for everyone.
+  Reported by Madiba Security Lab, Concordia University (Ridwan Islam).
+- Dev toolchain refresh consolidating the open dependabot bumps: sinon 22,
+  @types/node 26, @commitlint/cli 21, js-yaml 4.3.1, jest 30.4.2, globals
+  17.11, fast-uri 3.1.5. Runtime dependencies and peer ranges are unchanged.
+
 ## [2.9.1](https://github.com/VaclavObornik/mongodash/compare/v2.9.0...v2.9.1) (2026-07-29)
 
 Maintenance release — no library code changes ([#477](https://github.com/VaclavObornik/mongodash/pull/477)).
