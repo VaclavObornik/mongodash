@@ -1,6 +1,6 @@
 {
     "name": "mongodash",
-    "version": "2.9.1",
+    "version": "2.9.2",
     "type": "commonjs",
     "description": "An utility library delivering super-useful and super-simple tools using MongoDB",
     "main": "./dist/lib/index.js",
