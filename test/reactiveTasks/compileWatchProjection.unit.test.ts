@@ -37,12 +37,21 @@ describe('compileWatchProjection', () => {
     });
 
     it('rejects prototype-polluting keys without touching Object.prototype', () => {
-        const keys = ['__proto__', '__proto__.polluted', 'constructor.prototype.polluted', 'a.__proto__.b', 'prototype.polluted'];
-        for (const key of keys) {
-            expect(() => compileWatchProjection({ [key]: 1 })).toThrow(/not allowed in watchProjection/);
-            expect(() => compileWatchProjection({ [key]: '123' })).toThrow(/not allowed in watchProjection/);
+        const keys = ['__proto__', '__proto__.polluted', 'constructor.prototype.polluted', 'a.__proto__.b', 'a.constructor', 'prototype.polluted'];
+        try {
+            for (const key of keys) {
+                expect(() => compileWatchProjection({ [key]: 1 })).toThrow(/not allowed in watchProjection/);
+                expect(() => compileWatchProjection({ [key]: '123' })).toThrow(/not allowed in watchProjection/);
+            }
+            expect('polluted' in {}).toBe(false);
+        } finally {
+            delete (Object.prototype as Record<string, unknown>).polluted;
         }
-        expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+
+    it('creates own intermediate objects instead of traversing inherited ones', () => {
+        expect(compileWatchProjection({ 'toString.x': 1 })).toEqual({ toString: { x: '$toString.x' } });
+        expect('x' in Object.prototype.toString).toBe(false);
     });
 
     it('returns the cached result for the same projection object instance', () => {
