@@ -20,7 +20,7 @@ you can use the following options:
 | `collection` | `string` | **Required**. Name of the MongoDB collection to watch. |
 | `handler` | `(context) => Promise<void>` | **Required**. Async function to process the task. Use `context.getDocument()` to get the document. |
 | `filter` | `Document` | Standard Query (e.g., `{ status: 'pending' }`) OR Aggregation Expression (e.g., `{ $eq: ['$status', 'pending'] }`). Aggregation syntax unlocks powerful features like using `$$NOW` for time-based filtering. |
-| `watchProjection` | `Document` | MongoDB Projection. Task only re-triggers if the projected result changes. Supports inclusion `{ a: 1 }` and computed fields. |
+| `watchProjection` | `Document` | MongoDB Projection. Task only re-triggers if the projected result changes. Supports inclusion `{ a: 1 }` and computed fields. Exclusion style (`{ a: 0 }`) is rejected, as are keys with `__proto__`, `constructor` or `prototype` path segments. |
 | `debounce` | `number \| string` | Debounce window (ms or duration string). Default: `1000`. Useful to group rapid updates. |
 | `retryPolicy` | `RetryPolicy` | Configuration for retries on failure. See [Retry Policy](./policy-retry.md). |
 | `cleanupPolicy` | `CleanupPolicy` | Configuration for automatic cleanup of orphaned task records. See [Cleanup Policy](./policy-cleanup.md). |
