@@ -2,6 +2,9 @@ import { Document } from 'mongodb';
 
 const projectionCache = new WeakMap<object, Document | string>();
 
+// These segments would let the unflattening walk into (and mutate) the prototype chain.
+const FORBIDDEN_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * Compiles a user-friendly watchProjection into a strict Aggregation Expression.
  * This handles:
@@ -40,13 +43,18 @@ export function compileWatchProjection(projection?: Document): Document | string
 
         // Handle dotted keys by unflattening them
         const parts = key.split('.');
+        for (const part of parts) {
+            if (FORBIDDEN_KEY_SEGMENTS.has(part)) {
+                throw new Error(`Field name '${part}' is not allowed in watchProjection (key '${key}').`);
+            }
+        }
         let current = expression;
         for (let i = 0; i < parts.length; i++) {
             const part = parts[i];
             if (i === parts.length - 1) {
                 current[part] = targetValue;
             } else {
-                if (!current[part]) {
+                if (!Object.prototype.hasOwnProperty.call(current, part) || typeof current[part] !== 'object' || current[part] === null) {
                     current[part] = {};
                 }
                 current = current[part];
