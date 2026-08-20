@@ -50,8 +50,12 @@ describe('compileWatchProjection', () => {
     });
 
     it('creates own intermediate objects instead of traversing inherited ones', () => {
-        expect(compileWatchProjection({ 'toString.x': 1 })).toEqual({ toString: { x: '$toString.x' } });
-        expect('x' in Object.prototype.toString).toBe(false);
+        try {
+            expect(compileWatchProjection({ 'toString.x': 1 })).toEqual({ toString: { x: '$toString.x' } });
+            expect('x' in Object.prototype.toString).toBe(false);
+        } finally {
+            delete (Object.prototype.toString as unknown as Record<string, unknown>).x;
+        }
     });
 
     it('returns the cached result for the same projection object instance', () => {
