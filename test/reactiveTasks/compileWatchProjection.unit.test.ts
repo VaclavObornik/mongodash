@@ -36,6 +36,15 @@ describe('compileWatchProjection', () => {
         expect(() => compileWatchProjection({ a: false })).toThrow(/Exclusion style projection/);
     });
 
+    it('rejects prototype-polluting keys without touching Object.prototype', () => {
+        const keys = ['__proto__', '__proto__.polluted', 'constructor.prototype.polluted', 'a.__proto__.b', 'prototype.polluted'];
+        for (const key of keys) {
+            expect(() => compileWatchProjection({ [key]: 1 })).toThrow(/not allowed in watchProjection/);
+            expect(() => compileWatchProjection({ [key]: '123' })).toThrow(/not allowed in watchProjection/);
+        }
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+
     it('returns the cached result for the same projection object instance', () => {
         const projection = { 'x.y': 1 };
         const first = compileWatchProjection(projection);
