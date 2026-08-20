@@ -5,7 +5,7 @@ import { paths } from 'deepdash/standalone';
 import { isEmpty, isEqual, matches, noop, pick, times, uniqueId } from 'lodash';
 import { Collection, UpdateFilter } from 'mongodb';
 import * as sinon from 'sinon';
-import { createSandbox, SinonSpy, SinonStub, spy } from 'sinon';
+import { createSandbox, SinonSpy, SinonStub } from 'sinon';
 import { getNewInstance, wait, waitUntil } from './testHelpers';
 
 const debug = _debug('mongodash:cronTests:regression');
@@ -155,7 +155,8 @@ describe('cronTasks - regressions / internal invariants', () => {
         let resolve: ((value: unknown) => void) | null;
         const callTimes: { startedAt: Date; finishedAt: Date }[] = [];
 
-        const task = spy(async () => {
+        // sinon 22 scopes callId per context; order assertions (calledBefore/After vs onError) need every spy on the same sandbox.
+        const task = sandbox.spy(async () => {
             debug(`task ${taskId} called`);
             const startedAt = new Date();
             try {
