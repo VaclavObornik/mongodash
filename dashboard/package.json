@@ -17,7 +17,7 @@
         "mongodb": "^7.0.0",
         "path-to-regexp": "8.3.0",
         "typescript": "^5.9.3",
-        "vite": "^8.0.16",
+        "vite": "^8.3.5",
         "vite-plugin-singlefile": "^2.3.3",
         "vue": "^3.5.26",
         "vue-router": "^4.6.4",
