@@ -12,15 +12,15 @@
         "preview": "vite preview"
     },
     "devDependencies": {
-        "@vitejs/plugin-vue": "^6.0.3",
-        "date-fns": "^4.1.0",
-        "mongodb": "^7.0.0",
-        "path-to-regexp": "8.3.0",
+        "@vitejs/plugin-vue": "^6.0.11",
+        "date-fns": "^4.4.0",
+        "mongodb": "^7.9.0",
+        "path-to-regexp": "9.0.0",
         "typescript": "^5.9.3",
-        "vite": "^8.3.5",
-        "vite-plugin-singlefile": "^2.3.3",
+        "vite": "^8.3.8",
+        "vite-plugin-singlefile": "^2.3.4",
         "vue": "^3.5.45",
-        "vue-router": "^4.6.4",
-        "vue-tsc": "^3.2.1"
+        "vue-router": "^4.6.5",
+        "vue-tsc": "^3.3.14"
     }
 }
