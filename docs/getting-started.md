@@ -17,6 +17,11 @@ Installation:
 npm install mongodash
 ```
 
+Requirements:
+- MongoDB server 7, 8 or 9. Reactive tasks and `withTransaction` need a replica set or a sharded cluster.
+- MongoDB Node.js driver 4.1 or newer (tested with 4.1, 6.x and 7.x).
+- Node.js 20 or newer.
+
 Initialization
 ```typescript
 import mongodash from 'mongodash';
