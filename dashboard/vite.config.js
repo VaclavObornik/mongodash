@@ -12,7 +12,7 @@ export default defineConfig({
     },
     resolve: {
         alias: {
-            '@shared': path.resolve(__dirname, '../src/task-management')
+            '@shared': path.resolve(import.meta.dirname, '../src/task-management')
         }
     },
     server: {
