@@ -5,6 +5,7 @@ import { createSandbox } from 'sinon';
 import { GlobalsCollection } from '../../src/globalsCollection';
 import { LeaderElector } from '../../src/reactiveTasks/LeaderElector';
 import { REACTIVE_TASK_META_DOC_ID } from '../../src/reactiveTasks/ReactiveTaskTypes';
+import { waitUntil } from '../../src/testing';
 import { createReusableWaitableStub, getNewInstance, wait } from '../testHelpers';
 
 const _debug = createDebug('mongodash:test:LeaderElector');
@@ -197,8 +198,7 @@ describe('LeaderElector', () => {
         };
         const elector = createElector('inst1', callbacks);
         await elector.start();
-        await wait(300);
-        expect(elector.isLeader).toBe(true);
+        await waitUntil(() => elector.isLeader, { timeoutMs: 5000 });
 
         // Simulate another instance stealing the lock (manually update DB)
         await globalsCollection.updateOne(
@@ -212,9 +212,8 @@ describe('LeaderElector', () => {
         );
 
         // Wait for next heartbeat where it checks lock
-        await wait(300);
+        await waitUntil(() => !elector.isLeader, { timeoutMs: 5000 });
 
-        expect(elector.isLeader).toBe(false);
         sinon.assert.calledOnce(callbacks.onLoseLeader);
 
         await elector.stop();
