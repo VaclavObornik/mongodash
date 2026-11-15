@@ -10,6 +10,7 @@ module.exports = {
     "dashboard"
   ],
   "testRunner": "jest",
+  "testRunnerNodeArgs": ["--experimental-vm-modules"],
   "coverageAnalysis": "all",
   "htmlReporter": {
     "baseDir": "reports/mutation/html-report"

@@ -14,10 +14,12 @@ docker exec mongodash-test-mongo mongosh --quiet --eval \
 
 # 2. Run any test (mind the env var).
 MONGODB_URI="mongodb://127.0.0.1:27017/mongodashTesting?replicaSet=rs0" \
-    npx jest --forceExit --runInBand test/<path>
+    npm run test:simple -- --runInBand test/<path>
 ```
 
 Tests fail with `TransactionError` or stream errors without a replica set.
+Plain `npx jest` hangs with driver >= 7.6: the driver's dynamic `import('os')`
+needs `--experimental-vm-modules`, which the npm scripts pass.
 `npm test` runs lint + coverage + publint/attw and is slow; use `test:simple`
 during iteration.
 
