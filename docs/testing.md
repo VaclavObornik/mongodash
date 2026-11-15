@@ -4,6 +4,16 @@ Mongodash's asynchronous subsystems (reactive tasks, cron, change streams)
 need more than a fixed `setTimeout` in tests. This page lists the testing
 utilities the library provides, grouped by scope.
 
+::: tip Jest and MongoDB driver 7.6+
+Driver 7.6.0 and newer load a Node.js module with a dynamic `import()`. Jest
+only allows that when Node.js runs with `--experimental-vm-modules`. Without
+it, the driver cannot connect and every test times out. Start Jest like this:
+
+```bash
+node --experimental-vm-modules node_modules/jest/bin/jest.js
+```
+:::
+
 ## Generic
 
 ### `waitUntil`
