@@ -18,7 +18,9 @@
         "allowSyntheticDefaultImports": true,
         "noEmit": true,
         "jsx": "preserve",
-        "baseUrl": ".",
+        "types": [
+            "node"
+        ],
         "paths": {
             "@shared/*": [
                 "../src/task-management/*"

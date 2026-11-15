@@ -16,11 +16,11 @@
         "date-fns": "^4.4.0",
         "mongodb": "^7.9.0",
         "path-to-regexp": "9.0.0",
-        "typescript": "^5.9.3",
+        "typescript": "^6.0.3",
         "vite": "^8.3.8",
         "vite-plugin-singlefile": "^2.3.4",
         "vue": "^3.5.45",
-        "vue-router": "^4.6.5",
+        "vue-router": "^5.5.1",
         "vue-tsc": "^3.3.14"
     }
 }
