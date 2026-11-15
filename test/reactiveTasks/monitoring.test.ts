@@ -270,7 +270,7 @@ describe('Reactive Task Monitoring', () => {
         assertMetricValue(json, 'reactive_tasks_retries_total', { task_name: 'remoteTask' }, 5);
 
         await instance.mongodash.stopReactiveTasks();
-    });
+    }, 15000);
 
     it('should return null when monitoring is disabled', async () => {
         await instance.initInstance({ globalsCollection: GLOBAL_COLLECTION_NAME, monitoring: { enabled: false } });

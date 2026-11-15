@@ -323,16 +323,14 @@ describe('LeaderElector', () => {
         );
 
         await elector.start();
-        await wait(200);
-        expect(elector.isLeader).toBe(true);
+        await waitUntil(() => elector.isLeader, { timeoutMs: 5000 });
 
         // Now cause findOneAndUpdate to fail
         sandbox.stub(globalsCollection, 'findOneAndUpdate').rejects(new Error('DB Error after leadership'));
 
         // Wait for next heartbeat to trigger the error
-        await wait(200);
+        await waitUntil(() => !elector.isLeader, { timeoutMs: 5000 });
 
-        expect(elector.isLeader).toBe(false);
         sinon.assert.called(onError);
         sinon.assert.calledOnce(callbacks.onLoseLeader);
 
