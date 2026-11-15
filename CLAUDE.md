@@ -190,8 +190,6 @@ and needs analysis.
 
 ### Known flakes (as of 2.7.0)
 
-- `test/reactiveTasks/lockRenewal.test.ts` — times out on CI in some
-  Node×driver×server combos. Pre-existing on master. Not critical path.
 - `test/withLock.ts` timing assertions on 500ms — slow CI tips over.
 - **Docker Hub rate limits** occasionally fail `supercharge/mongodb-
   github-action` with "toomanyrequests". Not a code bug, just rerun.

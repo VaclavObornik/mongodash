@@ -41,8 +41,8 @@ describe('Reactive Task - Lock Renewal', () => {
 
         await instance.mongodash.startReactiveTasks();
 
-        // Wait for handler start
-        await waitForNextCall(1000);
+        // Must exceed the default 1000ms debounce before the first run.
+        await waitForNextCall(10000);
 
         const tasksCol = instance.mongodash.getCollection(`${collectionName}_tasks`);
 
