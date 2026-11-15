@@ -335,19 +335,21 @@ describe('cronTasks - regressions / internal invariants', () => {
     it('prolongs the lock while a handler runs longer than lockTaskTime', async () => {
         const lockTimes: { at: Date; lockedTill: Date }[] = [];
 
-        // The fake clock must not run ahead of real DB round-trips, or a slow write reads as a stale lock.
+        // The fake clock must not run ahead of real DB round-trips, or a slow query reads as a stale lock.
         const inFlight = new Set<Promise<unknown>>();
-        const track = <T>(promise: Promise<T>): Promise<T> => {
-            inFlight.add(promise);
-            promise.finally(() => inFlight.delete(promise)).catch(noop);
-            return promise;
-        };
-        prolongLockStub.callsFake((...args: unknown[]) => track(prolongLockStub.wrappedMethod.apply(collection, args)));
+        for (const stub of [prolongLockStub, findNextTaskStub, findNextRunSinceStub]) {
+            stub.callsFake((...args: unknown[]) => {
+                const promise: Promise<unknown> = stub.wrappedMethod.apply(collection, args);
+                inFlight.add(promise);
+                promise.finally(() => inFlight.delete(promise)).catch(noop);
+                return promise;
+            });
+        }
 
         const { taskId, task, getDocument, callTimes } = getTestingTask(async () => {
             const taskStart = new Date();
             while (Date.now() - taskStart.getTime() < 2 * lockTaskTime) {
-                const { lockedTill } = await track(getDocument());
+                const { lockedTill } = await getDocument();
                 lockTimes.push({ at: new Date(), lockedTill: lockedTill! });
                 await wait(15 * 1000);
             }
