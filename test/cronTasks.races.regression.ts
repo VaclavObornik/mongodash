@@ -335,10 +335,19 @@ describe('cronTasks - regressions / internal invariants', () => {
     it('prolongs the lock while a handler runs longer than lockTaskTime', async () => {
         const lockTimes: { at: Date; lockedTill: Date }[] = [];
 
+        // The fake clock must not run ahead of real DB round-trips, or a slow write reads as a stale lock.
+        const inFlight = new Set<Promise<unknown>>();
+        const track = <T>(promise: Promise<T>): Promise<T> => {
+            inFlight.add(promise);
+            promise.finally(() => inFlight.delete(promise)).catch(noop);
+            return promise;
+        };
+        prolongLockStub.callsFake((...args: unknown[]) => track(prolongLockStub.wrappedMethod.apply(collection, args)));
+
         const { taskId, task, getDocument, callTimes } = getTestingTask(async () => {
             const taskStart = new Date();
             while (Date.now() - taskStart.getTime() < 2 * lockTaskTime) {
-                const { lockedTill } = await getDocument();
+                const { lockedTill } = await track(getDocument());
                 lockTimes.push({ at: new Date(), lockedTill: lockedTill! });
                 await wait(15 * 1000);
             }
@@ -352,6 +361,7 @@ describe('cronTasks - regressions / internal invariants', () => {
         prolongLockStub.resetHistory();
 
         while (callTimes.length === 0) {
+            await Promise.allSettled(inFlight);
             await sandbox.clock.tickAsync(100);
         }
 
