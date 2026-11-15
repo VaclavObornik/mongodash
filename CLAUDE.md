@@ -37,9 +37,10 @@ Two task subsystems, both share `ConcurrentRunner` as the worker pool:
     wedged (runnerStarted=true but no live workers). ensureStarted chains
     on a pending stop before firing a new start.
   - `ConcurrentRunner.start()` resets each source's nextRunAt +
-    currentBackoff, and `setNextRunAt()` no-ops if nextRunAt is already
-    <= now (preserves a concurrent speedUp). `runATask` therefore
-    does not need caller-side race workarounds; see the
+    currentBackoff, and the poll-scoped `poll.setNextRunAt()` is dropped
+    if the schedule changed since that poll started (preserves a
+    concurrent speedUp or a newer poll). `runATask` therefore does not
+    need caller-side race workarounds; see the
     "refactor(concurrent-runner): close three scheduler races" commit.
 
 - **Reactive tasks** (`src/reactiveTasks/`) — change-stream driven.
@@ -54,15 +55,17 @@ Two task subsystems, both share `ConcurrentRunner` as the worker pool:
    `() => void` is expected. The internal parallel-runner stop is
    fire-and-forget via `runnerStopPromise`.
 
-2. **`ConcurrentRunner.setNextRunAt()` never pushes an already-due
-   source back into the future.** If `state.nextRunAt` is already
-   `<= now`, the write is skipped. A worker that finishes a poll and
-   calls `setNextRunAt(now + waitMs)` based on a stale query must not
-   overwrite a concurrent `speedUp()` that happened during the query.
-   Combined with the `resolved`-guarded re-check at the top of
-   `sleep()` and the source reset in `start()`, the runner absorbs the
-   three races that previously forced caller workarounds (cron used
-   two, see the "close three scheduler races" commit).
+2. **A poll's `setNextRunAt()` never overrides a fresher schedule.**
+   The runner hands each `tryRunATask` call a `PollContext`; its
+   `setNextRunAt(now + waitMs)` applies only if the source's
+   `scheduleVersion` is unchanged since that poll started. `speedUp()`,
+   `start()`, every poll start and every applied write bump the version,
+   so a stale result can overwrite neither a concurrent `speedUp()` nor
+   the schedule of a newer poll by another worker (that second case only
+   happens with `cronTaskConcurrency > 1`). Combined with the source
+   reset in `start()`, the runner absorbs the races that previously
+   forced caller workarounds (see the "close three scheduler races"
+   commit).
 
 3. **`createContinuousLock` CAS mode** uses `expectedInitialValue` +
    `onLockLost`. Worker passes `taskRecord.nextRunAt`; CAS detects

@@ -1,7 +1,7 @@
 // import * as _debug from 'debug';
 import { CronExpressionOptions } from 'cron-parser';
 import { Collection, Document, Filter } from 'mongodb';
-import { ConcurrentRunner } from './ConcurrentRunner';
+import { ConcurrentRunner, PollContext } from './ConcurrentRunner';
 import { createContinuousLock } from './createContinuousLock';
 import { getCollection } from './getCollection';
 import { initPromise } from './initPromise';
@@ -453,7 +453,7 @@ async function getWaitTimeByNextTask(): Promise<number> {
 // quickly; setNextRunAt on an empty poll defers the next tick to the
 // known runSince of the soonest task.
 
-async function runATask(): Promise<void> {
+async function runATask(poll: PollContext): Promise<void> {
     await initPromise;
     const enforcedTask = state.enforcedTasks.shift() || null;
     let task: Task | null = null;
@@ -480,10 +480,9 @@ async function runATask(): Promise<void> {
         if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
             if (state.runCronTasks) {
                 const waitMs = await getWaitTimeByNextTask();
-                // ConcurrentRunner's setNextRunAt no-ops if a concurrent
-                // speedUp() already pulled nextRunAt to the past, so our
-                // potentially-stale waitMs cannot swallow that signal.
-                state.runner.setNextRunAt(CRON_SOURCE_NAME, Date.now() + waitMs);
+                // Dropped by the runner if a speedUp() or a newer poll changed
+                // the schedule meanwhile, so a stale waitMs cannot win.
+                poll.setNextRunAt(Date.now() + waitMs);
             } else {
                 // Once runCronTasks has been turned off and there is no
                 // enforced task to run we stop polling entirely. A later
@@ -533,7 +532,7 @@ function ensureStarted(): void {
     if (!state.runnerStarted) {
         debug('STARTING RUNNER');
         state.runnerStarted = true;
-        state.runner!.start(() => runATask());
+        state.runner!.start((_sourceName, poll) => runATask(poll));
     } else {
         state.runner!.speedUp(CRON_SOURCE_NAME);
     }

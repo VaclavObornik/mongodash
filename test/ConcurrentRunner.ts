@@ -260,58 +260,63 @@ describe('ConcurrentRunner', () => {
         expect(callCount).toBeGreaterThan(callsAfterRestart);
     });
 
-    it('setNextRunAt() after a concurrent speedUp does not push the signal back into the future', async () => {
-        // Reproduces the race surfaced by cron tests: a task callback
-        // (a) triggers speedUp to signal new work while running, and
-        // (b) on return the scheduler commits setNextRunAt with a large
-        // waitMs computed from pre-signal state. Without the no-op guard
-        // (state.nextRunAt <= now  =>  skip write) setNextRunAt wins
-        // and the signalled immediate poll is lost.
+    it('poll.setNextRunAt() after a concurrent speedUp does not push the signal back into the future', async () => {
         runner = new ConcurrentRunner({ concurrency: 1 });
         runner.registerSource('col1', { minPollMs: 5000, maxPollMs: 5000, jitterMs: 0 });
 
         let callCount = 0;
         let signalled = false;
-        runner.start(async () => {
+        runner.start(async (_name, poll) => {
             callCount++;
             if (!signalled) {
                 signalled = true;
                 runner.speedUp('col1');
-                runner.setNextRunAt('col1', Date.now() + 60 * 60 * 1000);
+                poll.setNextRunAt(Date.now() + 60 * 60 * 1000);
             }
         });
 
-        // minPollMs is 5000ms. Without the fix the worker would sleep
-        // the full 5000ms after the first invocation and this 200ms
-        // window would see only a single call. With the fix speedUp
-        // survives and the worker invokes callback at least twice.
         await sleep(200);
         expect(callCount).toBeGreaterThanOrEqual(2);
     });
 
-    it('setNextRunAt() with a future runAt still applies when nextRunAt is already future', async () => {
-        // Negative case for the no-op guard: the standard "push next
-        // poll forward" usage must continue to work when no speedUp
-        // has pulled nextRunAt into the past.
+    it('poll.setNextRunAt() applies when nothing changed the schedule during the poll', async () => {
         runner = new ConcurrentRunner({ concurrency: 1 });
         runner.registerSource('col1', { minPollMs: 50, maxPollMs: 50, jitterMs: 0 });
 
         let callCount = 0;
-        runner.start(async () => {
+        runner.start(async (_name, poll) => {
             callCount++;
+            poll.setNextRunAt(Date.now() + 1000);
         });
 
-        // Let one poll run; prolongNextRun sets nextRunAt ~= now + 50ms
-        // (safely in the future from Date.now()'s perspective).
-        await sleep(20);
-        const callsAfterFirst = callCount;
-        expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
-
-        // Push next poll far beyond that back-off; write must apply.
-        runner.setNextRunAt('col1', Date.now() + 1000);
-
-        // Well past the 50ms back-off, well before the 1000ms target.
         await sleep(200);
-        expect(callCount).toBe(callsAfterFirst);
+        expect(callCount).toBe(1);
+    });
+
+    it('poll.setNextRunAt() from an older poll does not override the schedule of a newer poll', async () => {
+        runner = new ConcurrentRunner({ concurrency: 2 });
+        runner.registerSource('col1', { minPollMs: 5000, maxPollMs: 5000, jitterMs: 0 });
+
+        let releaseOlderPoll!: () => void;
+        const olderPollGate = new Promise<void>((resolve) => (releaseOlderPoll = resolve));
+        let callCount = 0;
+        runner.start(async (_name, poll) => {
+            callCount++;
+            if (callCount === 1) {
+                await olderPollGate;
+                poll.setNextRunAt(Date.now() + 60 * 60 * 1000);
+            } else if (callCount === 2) {
+                poll.setNextRunAt(Date.now() + 50);
+            }
+        });
+
+        await sleep(20);
+        runner.speedUp('col1');
+        await sleep(20);
+        expect(callCount).toBe(2);
+        releaseOlderPoll();
+
+        await sleep(300);
+        expect(callCount).toBeGreaterThanOrEqual(3);
     });
 });
