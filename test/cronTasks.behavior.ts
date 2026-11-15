@@ -258,9 +258,10 @@ describe('cronTasks - behavior', () => {
 
             const allRan = Promise.all([immediate.waitForNextRun(3000), scheduledEarly.waitForNextRun(3000), scheduledLate.waitForNextRun(3000)]);
 
-            await cronTask(scheduledEarly.taskId, runOnceIn(100), scheduledEarly.handler);
+            // Early's delay must outlast the rest of this setup, or early is legitimately due first.
+            await cronTask(scheduledEarly.taskId, runOnceIn(500), scheduledEarly.handler);
             await cronTask(immediate.taskId, distantFuture, immediate.handler);
-            await cronTask(scheduledLate.taskId, runOnceIn(300), scheduledLate.handler);
+            await cronTask(scheduledLate.taskId, runOnceIn(800), scheduledLate.handler);
 
             await collection.updateOne({ _id: immediate.taskId }, { $set: { runImmediately: true } });
 
