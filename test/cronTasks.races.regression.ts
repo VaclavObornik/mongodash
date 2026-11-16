@@ -727,25 +727,29 @@ describe('cronTasks - stale poll with parallel workers (regression)', () => {
             return result;
         });
 
-        const distantFuture = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
-        await cronTask('idle-task', distantFuture, noop);
-        await waitUntil(() => findOneStub.callCount >= 1, { message: 'the older poll did not reach findOne' });
+        try {
+            const distantFuture = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await cronTask('idle-task', distantFuture, noop);
+            await waitUntil(() => findOneStub.callCount >= 1, { message: 'the older poll did not reach findOne' });
 
-        const dueInMs = 300;
-        let intervalCalls = 0;
-        let ranAt: number | null = null;
-        const registeredAt = Date.now();
-        await cronTask(
-            'late-task',
-            () => (intervalCalls++ === 0 ? new Date(Date.now() + dueInMs) : distantFuture()),
-            () => void (ranAt = ranAt ?? Date.now()),
-        );
+            const dueInMs = 1000;
+            let intervalCalls = 0;
+            let ranAt: number | null = null;
+            const registeredAt = Date.now();
+            await cronTask(
+                'late-task',
+                () => (intervalCalls++ === 0 ? new Date(Date.now() + dueInMs) : distantFuture()),
+                () => void (ranAt = ranAt ?? Date.now()),
+            );
 
-        await waitUntil(() => newerPollDone, { message: 'no newer poll saw the late task' });
-        releaseOlderPoll();
+            await waitUntil(() => newerPollDone, { intervalMs: 10, message: 'no newer poll saw the late task' });
+            releaseOlderPoll();
 
-        await waitUntil(() => ranAt !== null, { timeoutMs: 10000, message: 'late-task did not run' });
-        const delay = ranAt! - registeredAt;
-        assert(delay < dueInMs + 1500, `late-task ran ${delay} ms after registration, expected about ${dueInMs} ms`);
+            await waitUntil(() => ranAt !== null, { timeoutMs: 10000, message: 'late-task did not run' });
+            const delay = ranAt! - registeredAt;
+            assert(delay < dueInMs + 1500, `late-task ran ${delay} ms after registration, expected about ${dueInMs} ms`);
+        } finally {
+            releaseOlderPoll();
+        }
     }, 20000);
 });
