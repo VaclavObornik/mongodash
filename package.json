@@ -80,7 +80,7 @@
         "@emnapi/core": "^1.11.3",
         "@emnapi/runtime": "^1.11.3",
         "@semantic-release/changelog": "^6.0.3",
-        "@semantic-release/git": "^10.0.1",
+        "@semantic-release/git": "^11.0.1",
         "@stryker-mutator/core": "^10.1.1",
         "@stryker-mutator/jest-runner": "^10.1.1",
         "@types/debug": "^4.1.13",
