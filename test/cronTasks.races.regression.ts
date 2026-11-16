@@ -684,3 +684,72 @@ describe('cronTasks - transient index failure (regression)', () => {
         }
     }, 20000);
 });
+
+/**
+ * Separate instance: needs two workers (`cronTaskConcurrency: 2`) and real timers.
+ */
+describe('cronTasks - stale poll with parallel workers (regression)', () => {
+    const {
+        mongodash: { cronTask, getCollection, startCronTasks, stopCronTasks },
+        initInstance,
+        cleanUpInstance,
+    } = getNewInstance();
+
+    beforeAll(() => initInstance({ cronTaskConcurrency: 2 }));
+    afterAll(async () => {
+        stopCronTasks();
+        await cleanUpInstance();
+    });
+
+    const sandbox = createSandbox();
+    afterEach(() => sandbox.verifyAndRestore());
+
+    /**
+     * Wake-up invariant: when an older poll finishes after a newer one, its
+     * stale "next task is 5 s away" must not overwrite the newer poll's
+     * schedule for a task registered in between.
+     */
+    it('a task registered during a slow poll runs on time when that poll finishes last', async () => {
+        const collection: Collection<TaskDocument> = getCollection('cronTasks');
+        await collection.deleteMany({});
+        startCronTasks();
+
+        let releaseOlderPoll!: () => void;
+        const olderPollGate = new Promise<void>((resolve) => (releaseOlderPoll = resolve));
+        let newerPollDone = false;
+        const findOneStub = sandbox.stub(collection, 'findOne');
+        findOneStub.callsFake(async (...args: Parameters<typeof collection.findOne>) => {
+            const isOlderPoll = findOneStub.callCount === 1;
+            const seesNewTask = JSON.stringify(args[0]).includes('late-task');
+            const result = await findOneStub.wrappedMethod.apply(collection, args);
+            if (isOlderPoll) await olderPollGate;
+            if (seesNewTask) setImmediate(() => (newerPollDone = true));
+            return result;
+        });
+
+        try {
+            const distantFuture = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await cronTask('idle-task', distantFuture, noop);
+            await waitUntil(() => findOneStub.callCount >= 1, { message: 'the older poll did not reach findOne' });
+
+            const dueInMs = 1000;
+            let intervalCalls = 0;
+            let ranAt: number | null = null;
+            const registeredAt = Date.now();
+            await cronTask(
+                'late-task',
+                () => (intervalCalls++ === 0 ? new Date(Date.now() + dueInMs) : distantFuture()),
+                () => void (ranAt = ranAt ?? Date.now()),
+            );
+
+            await waitUntil(() => newerPollDone, { intervalMs: 10, message: 'no newer poll saw the late task' });
+            releaseOlderPoll();
+
+            await waitUntil(() => ranAt !== null, { timeoutMs: 10000, message: 'late-task did not run' });
+            const delay = ranAt! - registeredAt;
+            assert(delay < dueInMs + 1500, `late-task ran ${delay} ms after registration, expected about ${dueInMs} ms`);
+        } finally {
+            releaseOlderPoll();
+        }
+    }, 20000);
+});

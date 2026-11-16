@@ -24,9 +24,25 @@ interface SourceState {
     options: SourceOptions;
     nextRunAt: number;
     currentBackoff: number;
+    // Bumped on every schedule change; a poll's result applies only if it is unchanged.
+    scheduleVersion: number;
 }
 
-export type TryRunATaskCallback = (sourceName: string) => Promise<void>;
+/** Handle for the poll that is currently running a {@link TryRunATaskCallback}. */
+export interface PollContext {
+    /**
+     * Schedule the next poll of this source at `runAt` (a millisecond epoch
+     * timestamp), e.g. when the poll already knows when the next work is due.
+     *
+     * If the schedule changed after this poll started (a
+     * {@link ConcurrentRunner.speedUp} or a newer poll by another worker),
+     * this poll's result may be stale, so it can only move the next poll
+     * earlier. Non-finite values are ignored.
+     */
+    setNextRunAt(runAt: number): void;
+}
+
+export type TryRunATaskCallback = (sourceName: string, poll: PollContext) => Promise<void>;
 
 export class ConcurrentRunner {
     private options: ConcurrentRunnerOptions;
@@ -53,6 +69,7 @@ export class ConcurrentRunner {
             options,
             nextRunAt: Date.now(),
             currentBackoff: options.minPollMs,
+            scheduleVersion: 0,
         });
         this.wakeUpOneWorker();
     }
@@ -76,6 +93,7 @@ export class ConcurrentRunner {
         for (const state of this.sources.values()) {
             state.nextRunAt = now;
             state.currentBackoff = state.options.minPollMs;
+            state.scheduleVersion++;
         }
 
         // Guard against a misconfigured concurrency (negative, NaN or
@@ -106,36 +124,28 @@ export class ConcurrentRunner {
             // Reset backoff and schedule immediately
             state.currentBackoff = state.options.minPollMs;
             state.nextRunAt = Date.now();
+            state.scheduleVersion++;
             this.wakeUpOneWorker();
             debug(`SpeedUp called for ${sourceName}`);
         }
     }
 
-    /**
-     * Override the back-off schedule so the next poll for `sourceName`
-     * happens at approximately `runAt` (a millisecond epoch timestamp).
-     * Intended for callers that already know when their next unit of work
-     * is due - e.g. cron scheduling an hour out - to skip wasted polls.
-     *
-     * - `runAt` must be a finite number; non-finite values are ignored.
-     * - If `state.nextRunAt` is already at or before `now`, the write is
-     *   skipped: something more urgent (usually {@link speedUp}) has
-     *   already signalled an immediate poll and we must not push it
-     *   back out. The worker picks up the signal on its next iteration.
-     * - Otherwise `nextRunAt` is overwritten with `runAt` (even if `runAt`
-     *   is in the past - that behaves like {@link speedUp}).
-     * - Back-off is reset so a subsequent wake-up fires at `minPollMs`.
-     */
-    public setNextRunAt(sourceName: string, runAt: number): void {
-        const state = this.sources.get(sourceName);
-        if (!state) return;
-        if (!Number.isFinite(runAt)) return;
-        state.currentBackoff = state.options.minPollMs;
-        if (state.nextRunAt > Date.now()) {
-            state.nextRunAt = runAt;
-        }
-        // Wake workers so any currently-sleeping one can recompute its wait.
-        this.wakeUpAllWorkers();
+    private createPollContext(state: SourceState): PollContext {
+        const pollVersion = state.scheduleVersion;
+        return {
+            setNextRunAt: (runAt: number) => {
+                if (!Number.isFinite(runAt)) return;
+                if (state.scheduleVersion === pollVersion) {
+                    state.currentBackoff = state.options.minPollMs;
+                    state.scheduleVersion++;
+                } else if (runAt >= state.nextRunAt) {
+                    return;
+                }
+                state.nextRunAt = runAt;
+                // Wake workers so any currently-sleeping one can recompute its wait.
+                this.wakeUpAllWorkers();
+            },
+        };
     }
 
     public updateAllSources(options: Partial<SourceOptions>): void {
@@ -176,10 +186,11 @@ export class ConcurrentRunner {
                 // if there is a task found, the tryRunATask is suppsed to call the speedUp method,
                 // which will reset the backoff
                 this.prolongNextRun(state.name);
+                const poll = this.createPollContext(state);
 
                 try {
                     this._activeWorkerCount++;
-                    await this.tryRunATask!(state.name);
+                    await this.tryRunATask!(state.name, poll);
                 } catch (e) {
                     this.onError(e as Error);
                 } finally {
@@ -202,6 +213,7 @@ export class ConcurrentRunner {
         const state = this.sources.get(sourceName)!;
         const sleepTime = state.currentBackoff + Math.random() * state.options.jitterMs;
         state.nextRunAt = Date.now() + sleepTime;
+        state.scheduleVersion++;
         // Increase backoff for next time
         state.currentBackoff = Math.min(state.currentBackoff * 2, state.options.maxPollMs);
     }
