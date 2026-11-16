@@ -55,14 +55,15 @@ Two task subsystems, both share `ConcurrentRunner` as the worker pool:
    `() => void` is expected. The internal parallel-runner stop is
    fire-and-forget via `runnerStopPromise`.
 
-2. **A poll's `setNextRunAt()` never overrides a fresher schedule.**
+2. **A poll's `setNextRunAt()` never pushes a fresher schedule later.**
    The runner hands each `tryRunATask` call a `PollContext`; its
-   `setNextRunAt(now + waitMs)` applies only if the source's
-   `scheduleVersion` is unchanged since that poll started. `speedUp()`,
-   `start()`, every poll start and every applied write bump the version,
-   so a stale result can overwrite neither a concurrent `speedUp()` nor
-   the schedule of a newer poll by another worker (that second case only
-   happens with `cronTaskConcurrency > 1`). Combined with the source
+   `setNextRunAt(now + waitMs)` fully applies only if the source's
+   `scheduleVersion` is unchanged since that poll started. Otherwise it
+   may only move `nextRunAt` earlier. `speedUp()`, `start()`, every poll
+   start and every fully applied write bump the version, so a stale
+   result can delay neither a concurrent `speedUp()` nor the schedule of
+   a newer poll by another worker (that second case only happens with
+   `cronTaskConcurrency > 1`). Combined with the source
    reset in `start()`, the runner absorbs the races that previously
    forced caller workarounds (see the "close three scheduler races"
    commit).

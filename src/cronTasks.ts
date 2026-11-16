@@ -480,8 +480,6 @@ async function runATask(poll: PollContext): Promise<void> {
         if (!task && state.runner && state.runnerStarted && state.enforcedTasks.length === 0) {
             if (state.runCronTasks) {
                 const waitMs = await getWaitTimeByNextTask();
-                // Dropped by the runner if a speedUp() or a newer poll changed
-                // the schedule meanwhile, so a stale waitMs cannot win.
                 poll.setNextRunAt(Date.now() + waitMs);
             } else {
                 // Once runCronTasks has been turned off and there is no

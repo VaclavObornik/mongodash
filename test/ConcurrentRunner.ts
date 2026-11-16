@@ -319,4 +319,37 @@ describe('ConcurrentRunner', () => {
         await sleep(300);
         expect(callCount).toBeGreaterThanOrEqual(3);
     });
+
+    it('poll.setNextRunAt() from an older poll can still move the next poll earlier', async () => {
+        runner = new ConcurrentRunner({ concurrency: 2 });
+        runner.registerSource('col1', { minPollMs: 5000, maxPollMs: 5000, jitterMs: 0 });
+
+        let releaseOlderPoll!: () => void;
+        const olderPollGate = new Promise<void>((resolve) => (releaseOlderPoll = resolve));
+        let releaseNewerPoll!: () => void;
+        const newerPollGate = new Promise<void>((resolve) => (releaseNewerPoll = resolve));
+        let callCount = 0;
+        runner.start(async (_name, poll) => {
+            callCount++;
+            if (callCount === 1) {
+                await olderPollGate;
+                poll.setNextRunAt(Date.now() + 50);
+            } else if (callCount === 2) {
+                await newerPollGate;
+            }
+        });
+
+        try {
+            await sleep(20);
+            runner.speedUp('col1');
+            await sleep(20);
+            expect(callCount).toBe(2);
+            releaseOlderPoll();
+
+            await sleep(300);
+            expect(callCount).toBeGreaterThanOrEqual(3);
+        } finally {
+            releaseNewerPoll();
+        }
+    });
 });

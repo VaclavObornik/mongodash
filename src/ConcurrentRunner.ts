@@ -34,10 +34,10 @@ export interface PollContext {
      * Schedule the next poll of this source at `runAt` (a millisecond epoch
      * timestamp), e.g. when the poll already knows when the next work is due.
      *
-     * Ignored when the schedule changed after this poll started (a
+     * If the schedule changed after this poll started (a
      * {@link ConcurrentRunner.speedUp} or a newer poll by another worker),
-     * because this poll's result may be stale then. Non-finite values are
-     * ignored too.
+     * this poll's result may be stale, so it can only move the next poll
+     * earlier. Non-finite values are ignored.
      */
     setNextRunAt(runAt: number): void;
 }
@@ -134,10 +134,14 @@ export class ConcurrentRunner {
         const pollVersion = state.scheduleVersion;
         return {
             setNextRunAt: (runAt: number) => {
-                if (!Number.isFinite(runAt) || state.scheduleVersion !== pollVersion) return;
+                if (!Number.isFinite(runAt)) return;
+                if (state.scheduleVersion === pollVersion) {
+                    state.currentBackoff = state.options.minPollMs;
+                    state.scheduleVersion++;
+                } else if (runAt >= state.nextRunAt) {
+                    return;
+                }
                 state.nextRunAt = runAt;
-                state.currentBackoff = state.options.minPollMs;
-                state.scheduleVersion++;
                 // Wake workers so any currently-sleeping one can recompute its wait.
                 this.wakeUpAllWorkers();
             },
